@@ -1,0 +1,471 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum QuarterStatus {
+  PLANNING
+  ACTIVE
+  SETTLED
+  CLOSED
+}
+
+enum SessionStatus {
+  DRAFT
+  OPEN
+  SETTLED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  ATTENDING
+  ABSENT_VALID
+  ABSENT_LATE
+  NOT_CONFIRMED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERPAID
+  REFUNDED
+}
+
+enum RefundStatus {
+  UNREFUNDED
+  PARTIAL
+  REFUNDED
+}
+
+enum ExpenseCategory {
+  COURT
+  SHUTTLE
+  DRINK
+  OTHER
+}
+
+enum PaymentType {
+  QUARTER_FEE
+  SESSION_FEE
+  GUEST_FEE
+  DEBT_PAYMENT
+  OTHER_INCOME
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum TreasuryType {
+  QUARTER_INCOME
+  GUEST_INCOME
+  GUEST_SURCHARGE
+  SESSION_EXPENSE
+  REFUND_ADVANCE
+  QUARTER_SETTLEMENT_REFUND
+  OTHER
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  phone        String    @unique
+  email        String?   @unique
+  password     String
+  role         Role      @default(MEMBER)
+  avatarUrl    String?
+  isActive     Boolean   @default(true)
+  bankName     String?
+  bankAccount  String?
+  accountName  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  quarterMembers       QuarterMember[]
+  sessionParticipants  SessionParticipant[]
+  advances             ExpenseAdvance[]
+  shuttleBatchesBought ShuttlecockBatch[]
+  settledSessions      Session[]             @relation("SettledBy")
+  reopenedSessions     Session[]             @relation("ReopenedBy")
+  confirmedPayments    PaymentTransaction[]  @relation("PaymentConfirmedBy")
+  userPayments         PaymentTransaction[]  @relation("UserPayments")
+  auditLogs            AuditLog[]
+  refundsProcessed     AdvanceRefund[]       @relation("RefundProcessedBy")
+  treasuryLogsCreated  TreasuryLog[]
+}
+
+model Quarter {
+  id                    String        @id @default(cuid())
+  name                  String
+  year                  Int
+  quarterNumber         Int
+  startDate             DateTime
+  endDate               DateTime
+  status                QuarterStatus @default(ACTIVE)
+  defaultGuestSurcharge Float         @default(10000)
+  defaultTargetPlayers  Int           @default(8)
+  autoTransferBalance   Boolean       @default(true)
+  startingBalance       Float         @default(0)
+  notes                 String?       @db.Text
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  members      QuarterMember[]
+  schedules    SchedulePlan[]
+  sessions     Session[]
+  payments     PaymentTransaction[]
+  treasuryLogs TreasuryLog[]
+}
+
+model QuarterMember {
+  id            String        @id @default(cuid())
+  quarterId     String
+  userId        String
+  fixedCourtFee Float         @default(0)
+  paidAmount    Float         @default(0)
+  paymentStatus PaymentStatus @default(UNPAID)
+  joinedDate    DateTime      @default(now())
+  leftDate      DateTime?
+  refundAmount  Float         @default(0)
+  isActive      Boolean       @default(true)
+  notes         String?
+
+  quarter Quarter @relation(fields: [quarterId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([quarterId, userId])
+}
+
+model Venue {
+  id                String   @id @default(cuid())
+  name              String
+  address           String?
+  phone             String?
+  googleMapUrl      String?  @db.Text
+  defaultHourlyRate Float    @default(100000)
+  notes             String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  courts    Court[]
+  schedules SchedulePlan[]
+  sessions  Session[]
+}
+
+model Court {
+  id          String   @id @default(cuid())
+  venueId     String
+  courtNumber String
+  hourlyRate  Float?
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+}
+
+model SchedulePlan {
+  id                   String   @id @default(cuid())
+  quarterId            String
+  venueId              String
+  dayOfWeek            Int      // 0=Chủ nhật, 1=Thứ 2, ..., 6=Thứ 7
+  startTime            String   // "18:00"
+  endTime              String   // "20:00"
+  numberOfCourts       Int      @default(1)
+  courtNumbers         String?  // e.g. "Sân 1, Sân 2"
+  targetPlayers        Int      @default(8)
+  estimatedHourlyPrice Float    @default(100000)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  quarter  Quarter   @relation(fields: [quarterId], references: [id], onDelete: Cascade)
+  venue    Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  sessions Session[]
+}
+
+model Session {
+  id                String        @id @default(cuid())
+  quarterId         String
+  venueId           String
+  schedulePlanId    String?
+  sessionCode       String?
+  sessionDate       DateTime
+  startTime         String
+  endTime           String
+  status            SessionStatus @default(OPEN)
+  targetPlayers     Int           @default(8)
+  guestSurcharge    Float         @default(10000)
+  totalCourtFee     Float         @default(0)
+  totalShuttleFee   Float         @default(0)
+  totalDrinkFee     Float         @default(0)
+  totalOtherFee     Float         @default(0)
+  totalExpense      Float         @default(0)
+  totalGuestRevenue Float         @default(0)
+  isSettled         Boolean       @default(false)
+  settledAt         DateTime?
+  settledByUserId   String?
+  settlementNotes   String?       @db.Text
+  reopenedAt        DateTime?
+  reopenedByUserId  String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  quarter        Quarter              @relation(fields: [quarterId], references: [id], onDelete: Cascade)
+  venue          Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  schedulePlan   SchedulePlan?        @relation(fields: [schedulePlanId], references: [id])
+  settledBy      User?                @relation("SettledBy", fields: [settledByUserId], references: [id])
+  reopenedBy     User?                @relation("ReopenedBy", fields: [reopenedByUserId], references: [id])
+
+  sessionCourts  SessionCourt[]
+  participants   SessionParticipant[]
+  expenses       SessionExpense[]
+  shuttleUsages  ShuttlecockUsage[]
+  sessionDrinks  SessionDrink[]
+  advances       ExpenseAdvance[]
+  payments       PaymentTransaction[]
+  treasuryLogs   TreasuryLog[]
+}
+
+model SessionCourt {
+  id         String @id @default(cuid())
+  sessionId  String
+  courtName  String
+  hours      Float  @default(2.0)
+  hourlyRate Float
+  totalCost  Float
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model SessionParticipant {
+  id                 String           @id @default(cuid())
+  sessionId          String
+  userId             String?
+  isGuest            Boolean          @default(false)
+  guestName          String?
+  guestPhone         String?
+  attendanceStatus   AttendanceStatus @default(ATTENDING)
+  attendanceDeadline DateTime?
+  confirmedAt        DateTime?
+  confirmedByUserId  String?
+  courtFeeShare      Float            @default(0)
+  shuttleFeeShare    Float            @default(0)
+  drinkFeeShare      Float            @default(0)
+  otherFeeShare      Float            @default(0)
+  guestSurcharge     Float            @default(0)
+  totalCost          Float            @default(0)
+  totalAdvanced      Float            @default(0)
+  totalPaid          Float            @default(0)
+  debtAmount         Float            @default(0)
+  netSettlement      Float            @default(0)
+  paymentStatus      PaymentStatus    @default(UNPAID)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  session      Session              @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user         User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenseShares ExpenseShare[]
+  drinkShares  SessionDrinkShare[]
+  payments     PaymentTransaction[]
+}
+
+model ShuttlecockBrand {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  batches ShuttlecockBatch[]
+}
+
+model ShuttlecockBatch {
+  id                 String   @id @default(cuid())
+  brandId            String
+  batchCode          String
+  tubeQuantity       Int
+  ballsPerTube       Int      @default(12)
+  totalBalls         Int
+  remainingBalls     Int
+  pricePerTube       Float
+  pricePerBall       Float
+  purchaseDate       DateTime @default(now())
+  payerUserId        String?
+  isPaidFromTreasury Boolean  @default(false)
+  notes              String?
+  createdAt          DateTime @default(now())
+
+  brand   ShuttlecockBrand   @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  payer   User?              @relation(fields: [payerUserId], references: [id])
+  usages  ShuttlecockUsage[]
+}
+
+model ShuttlecockUsage {
+  id           String @id @default(cuid())
+  sessionId    String
+  batchId      String
+  ballsUsed    Int
+  pricePerBall Float
+  totalCost    Float
+
+  session Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch   ShuttlecockBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+}
+
+model DrinkItem {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  isSharedPitcher Boolean  @default(false)
+  unitPrice       Float
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  sessionDrinks SessionDrink[]
+}
+
+model SessionDrink {
+  id          String  @id @default(cuid())
+  sessionId   String
+  drinkItemId String
+  quantity    Int     @default(1)
+  unitPrice   Float
+  totalCost   Float
+  payerUserId String?
+  isShared    Boolean @default(false)
+
+  session   Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  drinkItem DrinkItem           @relation(fields: [drinkItemId], references: [id], onDelete: Cascade)
+  shares    SessionDrinkShare[]
+}
+
+model SessionDrinkShare {
+  id             String @id @default(cuid())
+  sessionDrinkId String
+  participantId  String
+  quantity       Float  @default(1)
+  amount         Float
+
+  sessionDrink SessionDrink       @relation(fields: [sessionDrinkId], references: [id], onDelete: Cascade)
+  participant  SessionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+}
+
+model SessionExpense {
+  id        String          @id @default(cuid())
+  sessionId String
+  category  ExpenseCategory
+  title     String
+  amount    Float
+  notes     String?
+
+  session  Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  advances ExpenseAdvance[]
+  shares   ExpenseShare[]
+}
+
+model ExpenseAdvance {
+  id             String       @id @default(cuid())
+  sessionId      String
+  expenseId      String?
+  userId         String
+  amount         Float
+  refundStatus   RefundStatus @default(UNREFUNDED)
+  refundedAmount Float        @default(0)
+  notes          String?
+  createdAt      DateTime     @default(now())
+
+  session Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  expense SessionExpense? @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refunds AdvanceRefund[]
+}
+
+model ExpenseShare {
+  id            String @id @default(cuid())
+  expenseId     String
+  participantId String
+  amount        Float
+
+  expense     SessionExpense     @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  participant SessionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+}
+
+model PaymentTransaction {
+  id                String            @id @default(cuid())
+  quarterId         String?
+  sessionId         String?
+  participantId     String?
+  userId            String?
+  amount            Float
+  type              PaymentType
+  method            PaymentMethod     @default(BANK_TRANSFER)
+  billImageUrl      String?           @db.Text
+  confirmedByUserId String?
+  confirmedAt       DateTime?
+  status            TransactionStatus @default(CONFIRMED)
+  notes             String?
+  createdAt         DateTime          @default(now())
+
+  quarter       Quarter?            @relation(fields: [quarterId], references: [id])
+  session       Session?            @relation(fields: [sessionId], references: [id])
+  participant   SessionParticipant? @relation(fields: [participantId], references: [id])
+  user          User?               @relation("UserPayments", fields: [userId], references: [id])
+  confirmedBy   User?               @relation("PaymentConfirmedBy", fields: [confirmedByUserId], references: [id])
+}
+
+model AdvanceRefund {
+  id               String        @id @default(cuid())
+  advanceId        String
+  amount           Float
+  refundedByUserId String
+  method           PaymentMethod @default(BANK_TRANSFER)
+  refundDate       DateTime      @default(now())
+  notes            String?
+
+  advance    ExpenseAdvance @relation(fields: [advanceId], references: [id], onDelete: Cascade)
+  refundedBy User           @relation("RefundProcessedBy", fields: [refundedByUserId], references: [id])
+}
+
+model TreasuryLog {
+  id              String       @id @default(cuid())
+  quarterId       String?
+  sessionId       String?
+  amount          Float
+  balanceAfter    Float
+  type            TreasuryType
+  description     String
+  createdByUserId String
+  createdAt       DateTime     @default(now())
+
+  quarter   Quarter? @relation(fields: [quarterId], references: [id])
+  session   Session? @relation(fields: [sessionId], references: [id])
+  createdBy User     @relation(fields: [createdByUserId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  oldData    String?  @db.Text
+  newData    String?  @db.Text
+  userId     String
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

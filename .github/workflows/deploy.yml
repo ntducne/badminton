@@ -1,0 +1,170 @@
+name: Deploy Next.js
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      # ==========================================
+      # Checkout source
+      # ==========================================
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # ==========================================
+      # Setup Bun
+      # ==========================================
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # ==========================================
+      # Install dependencies
+      # ==========================================
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # ==========================================
+      # Create production env
+      # ==========================================
+      - name: Create .env.production
+        env:
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
+        run: |
+          printf '%s' "$ENV_PRODUCTION" > .env.production
+
+      # ==========================================
+      # Build Next.js
+      # ==========================================
+      - name: Build Next.js
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          rm -rf .next
+          bun run build
+
+      # ==========================================
+      # Setup SSH
+      # ==========================================
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          PORT="${SSH_PORT:-22}"
+
+          mkdir -p ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+
+          chmod 600 ~/.ssh/id_rsa
+
+          ssh-keyscan -p "$PORT" -H "$SSH_HOST" \
+            >> ~/.ssh/known_hosts
+
+      # ==========================================
+      # Create project directory on VPS
+      # ==========================================
+      - name: Prepare VPS directory
+        env:
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_USERNAME: ${{ secrets.VPS_USERNAME }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          PORT="${SSH_PORT:-22}"
+
+          ssh -p "$PORT" \
+            "${SSH_USERNAME}@${SSH_HOST}" \
+            "mkdir -p /var/www/badminton && rm -rf /var/www/badminton/.next"
+
+      # ==========================================
+      # Sync Next.js project
+      # ==========================================
+      - name: Sync files to VPS
+        env:
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_USERNAME: ${{ secrets.VPS_USERNAME }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          PORT="${SSH_PORT:-22}"
+
+          rsync -az --delete \
+            -e "ssh -p $PORT" \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='/node_modules/' \
+            --exclude='.next/cache' \
+            --exclude='.env' \
+            --exclude='.env.local' \
+            --exclude='logs' \
+            ./ \
+            "${SSH_USERNAME}@${SSH_HOST}:/var/www/badminton/"
+
+      # ==========================================
+      # Install & restart app
+      # ==========================================
+      - name: Start application with PM2
+        env:
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_USERNAME: ${{ secrets.VPS_USERNAME }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          PORT="${SSH_PORT:-22}"
+
+          ssh -p "$PORT" \
+            "${SSH_USERNAME}@${SSH_HOST}" << 'EOF'
+
+            set -e
+
+            cd /var/www/badminton
+
+            export PATH="$HOME/.bun/bin:/root/.bun/bin:/usr/local/bin:$PATH"
+            export NODE_ENV=production
+            # PM2 runs on the VPS host, outside the MongoDB Docker network.
+            # Override the container hostname even when .env.local is present.
+            export MONGO_DB_HOST=127.0.0.1
+
+            echo "Installing production dependencies..."
+
+            bun install \
+              --production \
+              --frozen-lockfile
+
+            echo "Restarting application..."
+
+            if pm2 describe badminton > /dev/null 2>&1; then
+
+              pm2 restart badminton --update-env
+
+            else
+
+              pm2 start bun \
+                --name badminton \
+                -- start -- \
+                -H 127.0.0.1 \
+                -p 3101
+
+            fi
+
+            pm2 save
+
+            echo "Deployment completed"
+
+            pm2 status
+
+          EOF
