@@ -1,6 +1,6 @@
-import { getDb } from './db';
+import { getDb } from './db.ts';
 import bcrypt from 'bcryptjs';
-import { AttendanceStatus, SessionStatus, QuarterStatus, PaymentStatus } from './types';
+import type { AttendanceStatus, SessionStatus, QuarterStatus, PaymentStatus } from './types.ts';
 
 export async function seedMongo() {
   const db = await getDb();

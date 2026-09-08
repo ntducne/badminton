@@ -22,7 +22,7 @@ export default async function SessionsListPage() {
   const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 sm:pb-8">
+    <div className="club-page club-sessions min-h-screen pb-20 sm:pb-8">
       <Navbar user={user} />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -43,7 +43,7 @@ export default async function SessionsListPage() {
           )}
         </div>
 
-        <div className="space-y-3">
+        <div className="club-record-list space-y-3">
           {sessions.map((s) => (
             <Link
               key={s.id}
@@ -91,4 +91,3 @@ export default async function SessionsListPage() {
     </div>
   );
 }
-

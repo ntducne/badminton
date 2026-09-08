@@ -43,10 +43,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-xl border border-slate-200/60">
+    <div className="club-login min-h-screen flex items-center justify-center p-4">
+      <div className="club-login-card bg-white max-w-md w-full p-6 sm:p-8 border">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto text-3xl mb-3 shadow-inner">
+          <div className="club-login-mark w-16 h-16 flex items-center justify-center mx-auto text-3xl mb-3">
             🏸
           </div>
           <h1 className="text-2xl font-bold text-slate-800">Đội Nhóm Cầu Lông</h1>
@@ -163,4 +163,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

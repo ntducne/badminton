@@ -37,7 +37,7 @@ export default function TreasuryPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50/70 pb-24 sm:pb-12">
+    <div className="club-page club-treasury min-h-screen pb-24 sm:pb-12">
       <Navbar user={currentUser} />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -55,7 +55,7 @@ export default function TreasuryPage() {
 
         {/* Card Số dư quỹ */}
         <Reveal delay={0.05}>
-          <Card className="bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/80 p-6 shadow-md space-y-4">
+          <Card className="club-feature-panel bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/80 p-6 shadow-md space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-400">Số dư hiện tại</span>
               <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-2xl shadow-inner">

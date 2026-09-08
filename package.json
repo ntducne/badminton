@@ -10,7 +10,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "bun run lint && bun run typecheck && bun test && bun run build",
-    "seed": "bun run src/lib/seed-mongo.ts"
+    "seed": "node --env-file=.env.local --experimental-strip-types src/lib/seed-mongo.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.10",

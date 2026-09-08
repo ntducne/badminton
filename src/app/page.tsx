@@ -57,7 +57,7 @@ export default async function DashboardPage() {
   const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
 
   return (
-    <div className="min-h-screen bg-slate-50/70 pb-24 sm:pb-12">
+    <div className="club-page club-overview min-h-screen pb-24 sm:pb-12">
       <Navbar user={user} />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -93,7 +93,7 @@ export default async function DashboardPage() {
         </Reveal>
 
         {/* 4 Cards Thống Kê Chính với Motion Stagger */}
-        <StaggerContainer className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StaggerContainer className="club-stat-grid grid grid-cols-2 sm:grid-cols-4 gap-3">
           {/* Card Quỹ chung */}
           <StaggerItem>
             <InteractiveCard className="bg-white/90 backdrop-blur-md p-4 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition">
@@ -176,7 +176,7 @@ export default async function DashboardPage() {
         {/* Tiêu Điểm: Buổi đánh sắp tới / Đang mở */}
         {nextSession && (
           <Reveal delay={0.15}>
-            <Card className="bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-md space-y-5">
+            <Card className="club-feature-panel bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-md space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                 <div className="flex items-center gap-3.5">
                   <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-black text-xl shadow-md shadow-emerald-500/20">

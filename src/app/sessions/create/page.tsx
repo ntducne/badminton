@@ -54,7 +54,7 @@ export default function CreateSessionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 sm:pb-8">
+    <div className="club-page club-form-page min-h-screen pb-20 sm:pb-8">
       <Navbar user={null} />
 
       <main className="max-w-xl mx-auto px-4 py-6 space-y-5">
@@ -66,7 +66,7 @@ export default function CreateSessionPage() {
           <span>Quay lại danh sách</span>
         </Link>
 
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-5">
+        <div className="club-form-panel bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-5">
           <div>
             <h1 className="text-lg font-bold text-slate-800">Tạo Buổi Đánh Mới</h1>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -187,4 +187,3 @@ export default function CreateSessionPage() {
     </div>
   );
 }
-

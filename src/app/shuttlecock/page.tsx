@@ -89,7 +89,7 @@ export default function ShuttlecockPage() {
   const isAdmin = currentUser?.role === 'OWNER' || currentUser?.role === 'ADMIN';
 
   return (
-    <div className="min-h-screen bg-slate-50/70 pb-24 sm:pb-12">
+    <div className="club-page club-shuttlecock min-h-screen pb-24 sm:pb-12">
       <Navbar user={currentUser} />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">

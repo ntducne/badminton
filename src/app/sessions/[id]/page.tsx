@@ -223,7 +223,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const isAdmin = currentUser?.role === 'OWNER' || currentUser?.role === 'ADMIN';
 
   return (
-    <div className="min-h-screen bg-slate-50/70 pb-24 sm:pb-12">
+    <div className="club-page club-session-detail min-h-screen pb-24 sm:pb-12">
       <Navbar user={currentUser} />
 
       {/* VietQR Modal */}
@@ -262,7 +262,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
         {/* Hero Card with Session Details */}
         <Reveal delay={0.05}>
-          <Card className="bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-md p-5 sm:p-6 space-y-4">
+          <Card className="club-feature-panel bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-md p-5 sm:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <motion.div
@@ -313,7 +313,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             </div>
 
             {/* Metrics Quick Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-slate-100">
+            <div className="club-detail-metrics grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-slate-100">
               <div className="p-3 bg-slate-50/80 rounded-2xl border border-slate-200/50">
                 <span className="text-slate-400 block text-[11px] font-medium">Người tham gia</span>
                 <span className="font-extrabold text-slate-800 text-sm">
