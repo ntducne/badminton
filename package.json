@@ -8,12 +8,13 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run lint && bun run typecheck && bun test && bun run build",
     "seed": "bun run src/lib/seed-mongo.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.10",
     "@internationalized/date": "^3.12.4",
-    "@prisma/client": "^6.4.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "framer-motion": "^13.2.0",
@@ -22,7 +23,6 @@
     "mongodb": "^7.6.0",
     "next": "16.3.4",
     "nodemailer": "^10.0.1",
-    "prisma": "^6.4.1",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -43,7 +43,7 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.3.14",
   "ignoreScripts": [
     "sharp",
     "unrs-resolver"
