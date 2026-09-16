@@ -1,16 +1,18 @@
 import React from 'react';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { getCurrentUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { formatMoney } from '@/lib/calculations';
 import { Session } from '@/lib/types';
-import { Calendar, Plus, ChevronRight } from 'lucide-react';
+import { Plus, ChevronRight } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SessionsListPage() {
   const user = await getCurrentUser();
+  if (!user) redirect('/login');
   const db = await getDb();
 
   const sessions = await db

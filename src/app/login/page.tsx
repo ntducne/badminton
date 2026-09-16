@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn, Shield, User, AlertCircle } from 'lucide-react';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,8 +31,8 @@ export default function LoginPage() {
 
       router.push('/');
       router.refresh();
-    } catch (err: any) {
-      setError(err.message || 'Lỗi đăng nhập');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Lỗi đăng nhập'));
     } finally {
       setLoading(false);
     }

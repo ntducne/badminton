@@ -21,7 +21,7 @@ export function Navbar({ user }: NavbarProps) {
   return <>
     <aside className="club-sidebar">
       <Link href="/" className="club-brand"><span className="club-brand-mark">🏸<i /></span>cầu<span>.</span></Link>
-      <div className="club-team"><span className="club-team-icon">🏸</span><div><strong>Đội cầu lông</strong><small>Quý 1 · 2026</small></div><ChevronRight size={15} /></div>
+      <div className="club-team"><span className="club-team-icon">🏸</span><div><strong>Đội cầu lông</strong><small>Quý đang hoạt động</small></div><ChevronRight size={15} /></div>
       <span className="club-nav-label">QUẢN LÝ ĐỘI</span>
       <nav>{navItems.map((item) => { const Icon = item.icon; const active = current?.href === item.href; return <Link key={item.href} href={item.href} className={`club-nav-item ${active ? 'active' : ''}`}>{active && <motion.span layoutId="nav-highlight" className="club-nav-highlight" transition={{ type: 'spring', stiffness: 500, damping: 35 }} />}<Icon size={17} /><span>{item.label}</span>{active && <b />}</Link>; })}</nav>
       <div className="club-sidebar-note"><span>✦</span><p>Chơi vui, minh bạch<br />và cùng nhau tiến bộ.</p></div>

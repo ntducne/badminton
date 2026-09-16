@@ -3,8 +3,9 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
-import { ArrowLeft, Calendar, Save } from 'lucide-react';
+import { ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function CreateSessionPage() {
   const router = useRouter();
@@ -46,8 +47,8 @@ export default function CreateSessionPage() {
       if (!res.ok) throw new Error(data.error || 'Lỗi tạo buổi đánh');
 
       router.push(`/sessions/${data.session.id}`);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Không thể tạo buổi đánh'));
     } finally {
       setLoading(false);
     }

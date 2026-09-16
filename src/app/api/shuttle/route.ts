@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { ShuttlecockBatch } from '@/lib/types';
+import { parseJsonBody, RequestValidationError, shuttleBatchSchema, validationErrorResponse } from '@/lib/api-validation';
 
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
     const db = await getDb();
     const batches = await db
       .collection<ShuttlecockBatch>('shuttle_batches')
@@ -16,35 +19,31 @@ export async function GET() {
     const totalRemaining = batches.reduce((sum, b) => sum + (b.remainingBalls || 0), 0);
 
     return NextResponse.json({ batches, totalRemaining });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi tải tồn kho cầu' }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tải tồn kho cầu' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user || (user.role !== 'OWNER' && user.role !== 'ADMIN')) {
+    if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
+    if (user.role !== 'OWNER' && user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Chỉ Admin mới có quyền nhập kho cầu' }, { status: 403 });
     }
 
     const db = await getDb();
-    const body = await req.json();
-
-    const brandName = body.brandName || 'Yonex AS-50';
-    const tubeQuantity = Number(body.tubeQuantity) || 1;
-    const ballsPerTube = Number(body.ballsPerTube) || 12;
-    const pricePerTube = Number(body.pricePerTube) || 310000;
+    const body = await parseJsonBody(req, shuttleBatchSchema);
+    const { brandName, tubeQuantity, ballsPerTube, pricePerTube, isPaidFromTreasury } = body;
     const payerUserId = body.payerUserId || user.id;
     const payerName = body.payerName || user.name;
-    const isPaidFromTreasury = Boolean(body.isPaidFromTreasury);
     const notes = body.notes || '';
 
     const totalBalls = tubeQuantity * ballsPerTube;
     const pricePerBall = Math.ceil(pricePerTube / ballsPerTube);
 
     const newBatch: ShuttlecockBatch = {
-      id: `batch-${Date.now()}`,
+      id: `batch-${crypto.randomUUID()}`,
       brandName,
       batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
       tubeQuantity,
@@ -63,8 +62,8 @@ export async function POST(req: NextRequest) {
     await db.collection('shuttle_batches').insertOne(newBatch);
 
     return NextResponse.json({ success: true, batch: newBatch });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi nhập kho cầu' }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof RequestValidationError) return validationErrorResponse(error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi nhập kho cầu' }, { status: 500 });
   }
 }
-

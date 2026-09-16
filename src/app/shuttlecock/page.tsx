@@ -16,14 +16,16 @@ import { Navbar } from '@/components/Navbar';
 import { Reveal, InteractiveCard, StaggerContainer, StaggerItem } from '@/components/motion';
 import { formatMoney } from '@/lib/calculations';
 import { ShuttlecockBatch } from '@/lib/types';
-import { Package, Plus, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import type { AuthSessionUser } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/errors';
+import { Package, Plus, AlertTriangle, CheckCircle2, LoaderCircle } from 'lucide-react';
 
 export default function ShuttlecockPage() {
   const [batches, setBatches] = useState<ShuttlecockBatch[]>([]);
   const [totalRemaining, setTotalRemaining] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<AuthSessionUser | null>(null);
 
   // Form state
   const [brandName, setBrandName] = useState('Yonex AS-50');
@@ -47,7 +49,7 @@ export default function ShuttlecockPage() {
 
       const uData = await userRes.json();
       setCurrentUser(uData.user);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
     } finally {
       setLoading(false);
@@ -55,7 +57,8 @@ export default function ShuttlecockPage() {
   };
 
   useEffect(() => {
-    loadData();
+    const timeout = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const handleAddBatch = async (e: React.FormEvent) => {
@@ -79,8 +82,8 @@ export default function ShuttlecockPage() {
 
       setShowModal(false);
       await loadData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Không thể nhập kho cầu'));
     } finally {
       setSubmitting(false);
     }
@@ -163,7 +166,9 @@ export default function ShuttlecockPage() {
         <Reveal delay={0.1} className="space-y-3">
           <h2 className="font-extrabold text-slate-800 text-base">Lịch sử các lô nhập ({batches.length})</h2>
 
-          <StaggerContainer className="space-y-3">
+          {loading ? (
+            <div className="club-state-panel"><LoaderCircle className="animate-spin" size={20} /> Đang kiểm kê kho cầu…</div>
+          ) : <StaggerContainer className="space-y-3">
             {batches.map((b) => (
               <StaggerItem key={b.id}>
                 <InteractiveCard className="bg-white/90 backdrop-blur-sm p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-2xs">
@@ -200,7 +205,8 @@ export default function ShuttlecockPage() {
                 </InteractiveCard>
               </StaggerItem>
             ))}
-          </StaggerContainer>
+          </StaggerContainer>}
+          {!loading && batches.length === 0 && <div className="club-state-panel">Chưa có lô cầu nào được nhập.</div>}
         </Reveal>
 
         {/* Modal Nhập kho */}

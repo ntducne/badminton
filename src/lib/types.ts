@@ -2,7 +2,11 @@ export type Role = 'OWNER' | 'ADMIN' | 'MEMBER';
 
 export type QuarterStatus = 'PLANNING' | 'ACTIVE' | 'SETTLED' | 'CLOSED';
 
-export type SessionStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
+export type SessionStatus = 'DRAFT' | 'OPEN' | 'LOCKED' | 'SETTLED' | 'REOPENED' | 'CANCELLED';
+
+export type SettlementStatus = 'POSTED' | 'REVERSED';
+
+export type InventoryMovementType = 'SESSION_USAGE' | 'REVERSAL';
 
 export type AttendanceStatus = 'ATTENDING' | 'ABSENT_VALID' | 'ABSENT_LATE' | 'NOT_CONFIRMED';
 
@@ -218,6 +222,9 @@ export interface Session {
   startTime: string;
   endTime: string;
   status: SessionStatus;
+  version?: number;
+  settlementVersion?: number;
+  currentSettlementId?: string;
   targetPlayers: number;
   guestSurcharge: number;
   totalCourtFee: number;
@@ -241,6 +248,53 @@ export interface Session {
   advances: ExpenseAdvance[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SessionSettlement {
+  id: string;
+  sessionId: string;
+  quarterId: string;
+  version: number;
+  status: SettlementStatus;
+  calculation: SessionCalculation;
+  notes?: string;
+  settledByUserId: string;
+  settledByName: string;
+  settledAt: string;
+  reversedAt?: string;
+  reversedByUserId?: string;
+  reversedByName?: string;
+  reversalReason?: string;
+}
+
+export interface InventoryMovement {
+  id: string;
+  batchId: string;
+  sessionId: string;
+  settlementId: string;
+  usageId: string;
+  type: InventoryMovementType;
+  quantity: number;
+  unitCost: number;
+  reversesMovementId?: string;
+  createdByUserId: string;
+  createdByName: string;
+  createdAt: string;
+}
+
+export interface SettlementTreasuryEntry {
+  id: string;
+  quarterId: string;
+  sessionId: string;
+  settlementId: string;
+  amount: number;
+  type: 'GUEST_SURCHARGE' | 'REVERSAL';
+  status: SettlementStatus;
+  description: string;
+  reversesEntryId?: string;
+  createdByUserId: string;
+  createdByName: string;
+  createdAt: string;
 }
 
 export interface PaymentTransaction {
@@ -279,10 +333,40 @@ export interface AuditLog {
   entityType: string;
   entityId: string;
   action: string;
-  oldData?: any;
-  newData?: any;
+  oldData?: unknown;
+  newData?: unknown;
   userId: string;
   userName: string;
   createdAt: string;
 }
 
+export interface MemberReport {
+  id: string;
+  userId: string;
+  name: string;
+  phone: string;
+  role: Role;
+  attendedCount: number;
+  absentValidCount: number;
+  absentLateCount: number;
+  fixedCourtFee: number;
+  paidCourtFee: number;
+  estimatedQuarterRefund: number;
+  totalSessionDebt: number | null;
+  totalAdvanced: number | null;
+  netDebt: number | null;
+  isMe: boolean;
+}
+
+export interface TreasurySummary {
+  quarterName: string;
+  startingBalance: number;
+  totalMemberPaid: number;
+  totalGuestRevenue: number;
+  totalSessionsExpense: number;
+  totalAdvancedByMembers: number;
+  currentFundBalance: number;
+  recentLogs: TreasuryLog[];
+}
+
+export type SessionCalculation = ReturnType<typeof import('./calculations').calculateSessionFinances>;

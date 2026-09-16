@@ -29,3 +29,8 @@ export async function getDb(): Promise<Db> {
   return (await globalDb.mongoPromise).db(process.env.MONGO_DB_DATABASE || 'badminton_db');
 }
 
+export async function getMongoClient(): Promise<MongoClient> {
+  await getDb();
+  if (!globalDb.mongoPromise) throw new Error('Không thể khởi tạo MongoDB client');
+  return globalDb.mongoPromise;
+}

@@ -4,7 +4,11 @@ import { cookies } from 'next/headers';
 import { getDb } from './db';
 import { User, Role } from './types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'badminton-super-secret-key-2026-secure-jwt-token';
+const configuredJwtSecret = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === 'production' && (!configuredJwtSecret || configuredJwtSecret.length < 32)) {
+  throw new Error('JWT_SECRET phải được cấu hình tối thiểu 32 ký tự ở production');
+}
+const JWT_SECRET = configuredJwtSecret || 'development-only-badminton-secret-change-me';
 const COOKIE_NAME = 'badminton_token';
 
 export interface AuthSessionUser {
@@ -59,4 +63,3 @@ export async function authenticateUser(phone: string, passwordPlain: string): Pr
 
   return user;
 }
-

@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import QRCode from 'qrcode';
+import { getCurrentUser } from '@/lib/auth';
+import { RequestValidationError, validationErrorResponse, vietQrQuerySchema } from '@/lib/api-validation';
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
-    const amount = Number(searchParams.get('amount')) || 0;
-    const description = searchParams.get('description') || 'Tien cau long';
-    const bankId = searchParams.get('bankId') || process.env.VIETQR_BANK_ID || '970422';
-    const accountNo = searchParams.get('accountNo') || process.env.VIETQR_ACCOUNT_NO || '0988888888';
-    const accountName = searchParams.get('accountName') || process.env.VIETQR_ACCOUNT_NAME || 'NGUYEN DUC TUNG';
+    const parsed = vietQrQuerySchema.safeParse({
+      amount: searchParams.get('amount'),
+      description: searchParams.get('description') || undefined,
+    });
+    if (!parsed.success) throw new RequestValidationError(parsed.error.issues);
+    const { amount, description } = parsed.data;
+    const bankId = process.env.VIETQR_BANK_ID;
+    const accountNo = process.env.VIETQR_ACCOUNT_NO;
+    const accountName = process.env.VIETQR_ACCOUNT_NAME;
+    if (!bankId || !accountNo || !accountName) {
+      return NextResponse.json({ error: 'VietQR chưa được cấu hình trên server' }, { status: 503 });
+    }
 
     // Link ảnh chuẩn VietQR của cổng thanh toán quốc gia
     const vietQrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.jpg?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(accountName)}`;
@@ -30,8 +42,8 @@ export async function GET(req: NextRequest) {
       amount,
       description,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi sinh mã VietQR' }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof RequestValidationError) return validationErrorResponse(error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi sinh mã VietQR' }, { status: 500 });
   }
 }
-

@@ -12,9 +12,13 @@ export async function GET(req: NextRequest) {
 
     const db = await getDb();
     const { searchParams } = new URL(req.url);
-    const quarterId = searchParams.get('quarterId') || 'q-2026-1';
+    const requestedQuarterId = searchParams.get('quarterId');
+    const activeQuarter = requestedQuarterId
+      ? null
+      : await db.collection<Quarter>('quarters').findOne({ status: 'ACTIVE' });
+    const quarterId = requestedQuarterId || activeQuarter?.id || 'q-2026-1';
 
-    const quarter = await db.collection<Quarter>('quarters').findOne({ id: quarterId });
+    const quarter = activeQuarter || await db.collection<Quarter>('quarters').findOne({ id: quarterId });
     const members = await db.collection<QuarterMember>('quarter_members').find({ quarterId }).toArray();
     const sessions = await db.collection<Session>('sessions').find({ quarterId }).toArray();
     const treasuryLogs = await db.collection('treasury').find({ quarterId }).sort({ createdAt: -1 }).toArray();
@@ -50,8 +54,7 @@ export async function GET(req: NextRequest) {
       currentFundBalance,
       recentLogs: treasuryLogs,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi tải thông tin quỹ chung' }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tải thông tin quỹ chung' }, { status: 500 });
   }
 }
-

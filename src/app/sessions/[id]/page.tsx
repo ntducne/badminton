@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, use, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Button,
@@ -15,9 +14,11 @@ import {
 } from '@heroui/react';
 import { Navbar } from '@/components/Navbar';
 import { VietQRModal } from '@/components/VietQRModal';
-import { Reveal, InteractiveCard, StaggerContainer, StaggerItem } from '@/components/motion';
+import { Reveal } from '@/components/motion';
 import { formatMoney, formatMoneyShort } from '@/lib/calculations';
-import { Session, SessionParticipant } from '@/lib/types';
+import type { Session, SessionParticipant, SessionCalculation } from '@/lib/types';
+import type { AuthSessionUser } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/errors';
 import {
   Calendar,
   Users,
@@ -34,18 +35,15 @@ import {
   Unlock,
   AlertTriangle,
   ArrowLeft,
-  Sparkles,
 } from 'lucide-react';
 
 export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
-
   const [session, setSession] = useState<Session | null>(null);
-  const [calculation, setCalculation] = useState<any>(null);
+  const [calculation, setCalculation] = useState<SessionCalculation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<AuthSessionUser | null>(null);
 
   // Active Tab
   const [selectedTab, setSelectedTab] = useState<string>('attendance');
@@ -68,7 +66,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     description: '',
   });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [sessRes, userRes] = await Promise.all([
@@ -84,16 +82,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       setSession(sessData.session);
       setCalculation(sessData.calculation);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Không thể tải buổi đánh'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    loadData();
-  }, [id]);
+    const timeout = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadData]);
 
   const handleAttendance = async (participantId: string, status: 'ATTENDING' | 'ABSENT') => {
     try {
@@ -107,8 +106,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       if (!res.ok) throw new Error(data.error);
 
       await loadData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -130,8 +129,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       setGuestName('');
       setGuestPhone('');
       await loadData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     } finally {
       setAddingGuest(false);
     }
@@ -149,8 +148,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       if (!res.ok) throw new Error(data.error);
 
       await loadData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -162,11 +161,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
     if (!confirm(confirmMsg)) return;
 
+    const notes = action === 'REOPEN'
+      ? window.prompt('Nhập lý do mở lại buổi đánh (bắt buộc):')?.trim()
+      : undefined;
+    if (action === 'REOPEN' && !notes) return;
+
     try {
       const res = await fetch(`/api/sessions/${id}/settle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, notes }),
       });
 
       const data = await res.json();
@@ -174,8 +178,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       alert(data.message);
       await loadData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 

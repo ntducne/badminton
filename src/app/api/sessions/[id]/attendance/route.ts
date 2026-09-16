@@ -3,6 +3,8 @@ import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { checkIsBeforeDeadline, calculateSessionFinances } from '@/lib/calculations';
 import { Session, AttendanceStatus } from '@/lib/types';
+import { isSessionMutable, sessionVersionFilter } from '@/lib/session-state';
+import { attendanceSchema, parseJsonBody, RequestValidationError, validationErrorResponse } from '@/lib/api-validation';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -17,8 +19,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!session) {
       return NextResponse.json({ error: 'Không tìm thấy buổi đánh' }, { status: 404 });
     }
+    if (!isSessionMutable(session)) {
+      return NextResponse.json({ error: 'Buổi đã khóa hoặc quyết toán, không thể sửa điểm danh' }, { status: 409 });
+    }
 
-    const { participantId, status } = await req.json(); // status: 'ATTENDING' | 'ABSENT'
+    const { participantId, status } = await parseJsonBody(req, attendanceSchema);
 
     // Tìm người tham gia
     const participantIndex = session.participants.findIndex(
@@ -65,7 +70,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     session.totalExpense = calc.totalExpense;
     session.totalGuestRevenue = calc.totalGuestRevenue;
 
-    await db.collection('sessions').updateOne({ id }, { $set: session });
+    const previousVersion = session.version;
+    session.version = (session.version || 0) + 1;
+    session.updatedAt = new Date().toISOString();
+    const updateResult = await db.collection<Session>('sessions').replaceOne(
+      sessionVersionFilter({ ...session, version: previousVersion }), session
+    );
+    if (updateResult.modifiedCount !== 1) {
+      return NextResponse.json({ error: 'Buổi vừa được cập nhật, vui lòng tải lại' }, { status: 409 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -78,8 +91,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           ? 'Báo nghỉ muộn sau deadline 6 tiếng (không được hoàn tiền sân cố định)'
           : 'Đã xác nhận tham gia buổi đánh',
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi cập nhật điểm danh' }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof RequestValidationError) return validationErrorResponse(error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi cập nhật điểm danh' }, { status: 500 });
   }
 }
-

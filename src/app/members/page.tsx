@@ -5,35 +5,33 @@ import { Navbar } from '@/components/Navbar';
 import { Chip } from '@heroui/react';
 import { Reveal, InteractiveCard, StaggerContainer, StaggerItem } from '@/components/motion';
 import { formatMoney, formatMoneyShort } from '@/lib/calculations';
-import { Shield, ArrowDownRight, ArrowUpRight, CheckCircle2 } from 'lucide-react';
+import type { AuthSessionUser } from '@/lib/auth';
+import type { MemberReport } from '@/lib/types';
+import { getErrorMessage } from '@/lib/errors';
+import { Shield, ArrowDownRight, ArrowUpRight, CheckCircle2, AlertCircle, LoaderCircle } from 'lucide-react';
 
 export default function MembersPage() {
-  const [members, setMembers] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [members, setMembers] = useState<MemberReport[]>([]);
+  const [currentUser, setCurrentUser] = useState<AuthSessionUser | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [membersRes, userRes] = await Promise.all([
-        fetch('/api/members'),
-        fetch('/api/auth/me'),
-      ]);
-
-      const mData = await membersRes.json();
-      setMembers(mData.members || []);
-
-      const uData = await userRes.json();
-      setCurrentUser(uData.user);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [error, setError] = useState('');
+  const [quarterName, setQuarterName] = useState('Quý hiện tại');
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    Promise.all([fetch('/api/members'), fetch('/api/auth/me')])
+      .then(async ([membersRes, userRes]) => {
+        const [memberData, userData] = await Promise.all([membersRes.json(), userRes.json()]);
+        if (!membersRes.ok) throw new Error(memberData.error || 'Không thể tải danh sách thành viên');
+        if (active) {
+          setMembers(memberData.members || []);
+          setCurrentUser(userData.user || null);
+          setQuarterName(memberData.quarterName || 'Quý hiện tại');
+        }
+      })
+      .catch((reason: unknown) => active && setError(getErrorMessage(reason)))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
   }, []);
 
   const isAdmin = currentUser?.role === 'OWNER' || currentUser?.role === 'ADMIN';
@@ -47,7 +45,7 @@ export default function MembersPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-black text-slate-800 tracking-tight">Thành viên & Công nợ</h1>
             <Chip size="sm" color="success" variant="flat" className="font-bold text-[10px]">
-              Quý 1/2026
+              {quarterName}
             </Chip>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -69,10 +67,16 @@ export default function MembersPage() {
 
         {/* Danh sách thành viên */}
         <Reveal delay={0.1} className="space-y-3">
+          {loading && (
+            <div className="club-state-panel"><LoaderCircle className="animate-spin" size={20} /> Đang tải thành viên…</div>
+          )}
+          {error && (
+            <div className="club-state-panel club-state-error"><AlertCircle size={20} /> {error}</div>
+          )}
           <StaggerContainer className="space-y-3">
-            {members.map((m) => {
+            {!loading && !error && members.map((m) => {
               const hasAccessToDebt = m.totalSessionDebt !== null;
-              const netDebt = m.netDebt;
+              const netDebt = m.netDebt ?? 0;
 
               return (
                 <StaggerItem key={m.id}>
@@ -135,13 +139,13 @@ export default function MembersPage() {
                           <div>
                             <span className="text-slate-400 block text-[11px]">Nợ các buổi</span>
                             <span className="font-bold text-slate-700">
-                              {formatMoney(m.totalSessionDebt)}
+                              {formatMoney(m.totalSessionDebt ?? 0)}
                             </span>
                           </div>
                           <div>
                             <span className="text-slate-400 block text-[11px]">Đã ứng cho nhóm</span>
                             <span className="font-bold text-purple-700">
-                              +{formatMoney(m.totalAdvanced)}
+                              +{formatMoney(m.totalAdvanced ?? 0)}
                             </span>
                           </div>
                         </div>
@@ -179,6 +183,9 @@ export default function MembersPage() {
               );
             })}
           </StaggerContainer>
+          {!loading && !error && members.length === 0 && (
+            <div className="club-state-panel">Chưa có thành viên trong quý hiện tại.</div>
+          )}
         </Reveal>
       </main>
     </div>

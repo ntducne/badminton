@@ -1,4 +1,4 @@
-import { Session, SessionParticipant, AttendanceStatus } from './types';
+import { Session, SessionParticipant } from './types';
 
 /**
  * Làm tròn lên đến hàng nghìn đồng (theo nghiệp vụ: làm tròn lên để bảo toàn quỹ)
@@ -44,6 +44,18 @@ export function checkIsBeforeDeadline(sessionDateStr: string, startTimeStr: stri
   } catch {
     return false;
   }
+}
+
+/** Chọn buổi sắp diễn ra gần nhất; nếu không còn lịch tương lai thì trả về buổi mới nhất. */
+export function getNextSession(sessions: Session[], now = new Date()): Session | null {
+  const timestamp = (session: Session) =>
+    new Date(`${session.sessionDate}T${session.startTime}:00`).getTime();
+  const upcoming = sessions
+    .filter((session) => timestamp(session) >= now.getTime())
+    .sort((a, b) => timestamp(a) - timestamp(b));
+
+  if (upcoming[0]) return upcoming[0];
+  return [...sessions].sort((a, b) => timestamp(b) - timestamp(a))[0] ?? null;
 }
 
 /**
@@ -189,4 +201,3 @@ export function calculateSessionFinances(session: Session) {
     participants: updatedParticipants,
   };
 }
-

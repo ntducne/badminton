@@ -155,6 +155,8 @@ export async function seedMongo() {
     startTime: '18:00',
     endTime: '20:00',
     status: 'OPEN' as SessionStatus,
+    version: 0,
+    settlementVersion: 0,
     targetPlayers: 8,
     guestSurcharge: 10000,
     totalCourtFee: 200000, // 2 tiếng x 100k

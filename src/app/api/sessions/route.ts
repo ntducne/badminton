@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { Session, SessionCourt } from '@/lib/types';
+import type { Filter } from 'mongodb';
+import { Session, SessionCourt, QuarterMember } from '@/lib/types';
+import { createSessionSchema, parseJsonBody, RequestValidationError, validationErrorResponse } from '@/lib/api-validation';
+import { sanitizeSessionForUser } from '@/lib/data-access';
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
     const db = await getDb();
     const { searchParams } = new URL(req.url);
     const quarterId = searchParams.get('quarterId');
 
-    const filter: any = {};
+    const filter: Filter<Session> = {};
     if (quarterId) {
       filter.quarterId = quarterId;
     }
@@ -20,35 +25,39 @@ export async function GET(req: NextRequest) {
       .sort({ sessionDate: -1, startTime: -1 })
       .toArray();
 
-    return NextResponse.json({ sessions });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi tải danh sách buổi đánh' }, { status: 500 });
+    return NextResponse.json({ sessions: sessions.map((session) => sanitizeSessionForUser(session, user)) });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tải danh sách buổi đánh' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user || (user.role !== 'OWNER' && user.role !== 'ADMIN')) {
+    if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
+    if (user.role !== 'OWNER' && user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Chỉ Admin mới có quyền tạo buổi đánh' }, { status: 403 });
     }
 
     const db = await getDb();
-    const body = await req.json();
-
+    const body = await parseJsonBody(req, createSessionSchema);
     const quarterId = body.quarterId || 'q-2026-1';
     const venueId = body.venueId || 'v-star';
     const venueName = body.venueName || 'Sân Cầu Lông Ngôi Sao';
-    const sessionDate = body.sessionDate;
-    const startTime = body.startTime || '18:00';
-    const endTime = body.endTime || '20:00';
-    const targetPlayers = Number(body.targetPlayers) || 8;
-    const guestSurcharge = Number(body.guestSurcharge) || 10000;
-    const hourlyRate = Number(body.hourlyRate) || 100000;
-    const courtNumbers = body.courtNumbers || 'Sân 1';
+    const { sessionDate, startTime, endTime, targetPlayers, guestSurcharge, hourlyRate, courtNumbers } = body;
 
-    if (!sessionDate) {
-      return NextResponse.json({ error: 'Vui lòng chọn ngày đánh' }, { status: 400 });
+    const conflictingSession = await db.collection<Session>('sessions').findOne({
+      venueId,
+      sessionDate,
+      status: { $ne: 'CANCELLED' },
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    });
+    if (conflictingSession) {
+      return NextResponse.json(
+        { error: `Trùng lịch với buổi ${conflictingSession.sessionCode} tại cùng địa điểm` },
+        { status: 409 }
+      );
     }
 
     // Đếm số buổi hiện tại để sinh mã B-X
@@ -56,10 +65,10 @@ export async function POST(req: NextRequest) {
     const sessionCode = `B-${count + 1}`;
 
     // Lấy danh sách thành viên cố định trong quý để đưa vào điểm danh mặc định
-    const quarterMembers = await db.collection('quarter_members').find({ quarterId, isActive: true }).toArray();
+    const quarterMembers = await db.collection<QuarterMember>('quarter_members').find({ quarterId, isActive: true }).toArray();
 
-    const participants = quarterMembers.map((qm: any) => ({
-      id: `p-${Date.now()}-${qm.userId}`,
+    const participants = quarterMembers.map((qm) => ({
+      id: `p-${crypto.randomUUID()}`,
       sessionId: '',
       userId: qm.userId,
       userName: qm.userName,
@@ -80,7 +89,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const courts: SessionCourt[] = courtNumbers.split(',').map((c: string, idx: number) => ({
-      id: `sc-${Date.now()}-${idx}`,
+      id: `sc-${crypto.randomUUID()}-${idx}`,
       sessionId: '',
       courtName: c.trim(),
       hours: 2,
@@ -91,7 +100,7 @@ export async function POST(req: NextRequest) {
     const totalCourtFee = courts.reduce((sum, c) => sum + c.totalCost, 0);
 
     const newSession: Session = {
-      id: `session-${Date.now()}`,
+      id: `session-${crypto.randomUUID()}`,
       quarterId,
       venueId,
       venueName,
@@ -100,6 +109,8 @@ export async function POST(req: NextRequest) {
       startTime,
       endTime,
       status: 'OPEN',
+      version: 0,
+      settlementVersion: 0,
       targetPlayers,
       guestSurcharge,
       totalCourtFee,
@@ -126,7 +137,8 @@ export async function POST(req: NextRequest) {
     await db.collection('sessions').insertOne(newSession);
 
     return NextResponse.json({ success: true, session: newSession });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi tạo buổi đánh' }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof RequestValidationError) return validationErrorResponse(error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tạo buổi đánh' }, { status: 500 });
   }
 }

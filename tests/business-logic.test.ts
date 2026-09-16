@@ -3,10 +3,40 @@ import {
   ceilToThousand,
   checkIsBeforeDeadline,
   calculateSessionFinances,
+  getNextSession,
 } from '../src/lib/calculations';
-import { Session, AttendanceStatus } from '../src/lib/types';
+import { Session } from '../src/lib/types';
+import { canTransitionSession, isSessionMutable } from '../src/lib/session-state';
+import { createSessionSchema, settleSchema, updateSessionSchema, vietQrQuerySchema } from '../src/lib/api-validation';
 
 describe('Badminton Business Logic & Calculations', () => {
+  test('Validation từ chối dữ liệu giả mạo và giới hạn VietQR', () => {
+    expect(updateSessionSchema.safeParse({ status: 'SETTLED', totalExpense: 1 }).success).toBe(false);
+    expect(createSessionSchema.safeParse({
+      sessionDate: '2026-09-20', startTime: '20:00', endTime: '18:00',
+    }).success).toBe(false);
+    expect(settleSchema.safeParse({ action: 'REOPEN', notes: '' }).success).toBe(false);
+    expect(vietQrQuerySchema.safeParse({ amount: 0, description: 'Test' }).success).toBe(false);
+    expect(vietQrQuerySchema.safeParse({ amount: 10000, description: 'Test' }).success).toBe(true);
+  });
+  test('State machine chỉ cho phép các chuyển trạng thái an toàn', () => {
+    expect(canTransitionSession('OPEN', 'SETTLED')).toBe(true);
+    expect(canTransitionSession('SETTLED', 'REOPENED')).toBe(true);
+    expect(canTransitionSession('SETTLED', 'OPEN')).toBe(false);
+    expect(canTransitionSession('CANCELLED', 'OPEN')).toBe(false);
+    expect(isSessionMutable({ status: 'OPEN', isSettled: false })).toBe(true);
+    expect(isSessionMutable({ status: 'LOCKED', isSettled: false })).toBe(false);
+    expect(isSessionMutable({ status: 'SETTLED', isSettled: true })).toBe(false);
+  });
+  test('Dashboard chọn đúng buổi tương lai gần nhất', () => {
+    const sessions = [
+      { id: 'past', sessionDate: '2026-01-10', startTime: '18:00' },
+      { id: 'later', sessionDate: '2026-02-20', startTime: '18:00' },
+      { id: 'next', sessionDate: '2026-02-16', startTime: '18:00' },
+    ] as Session[];
+
+    expect(getNextSession(sessions, new Date('2026-02-15T12:00:00'))?.id).toBe('next');
+  });
   test('Rule 8.4: Làm tròn lên đến hàng nghìn đồng (Ceil to thousand)', () => {
     // 400.000đ chia cho 3 người = 133.333,33đ -> làm tròn lên: 134.000đ
     const divided = 400000 / 3;

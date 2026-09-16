@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { User, QuarterMember, Session } from '@/lib/types';
+import { User, Quarter, QuarterMember, Session } from '@/lib/types';
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,7 +12,11 @@ export async function GET(req: NextRequest) {
 
     const db = await getDb();
     const { searchParams } = new URL(req.url);
-    const quarterId = searchParams.get('quarterId') || 'q-2026-1';
+    const requestedQuarterId = searchParams.get('quarterId');
+    const activeQuarter = requestedQuarterId
+      ? null
+      : await db.collection<Quarter>('quarters').findOne({ status: 'ACTIVE' });
+    const quarterId = requestedQuarterId || activeQuarter?.id || 'q-2026-1';
 
     // Lấy danh sách thành viên cố định trong quý
     const quarterMembers = await db
@@ -75,8 +79,8 @@ export async function GET(req: NextRequest) {
         name: qm.userName,
         phone: qm.userPhone,
         role: user?.role || 'MEMBER',
-        bankAccount: user?.bankAccount,
-        bankName: user?.bankName,
+        bankAccount: isMe || isAdmin ? user?.bankAccount : undefined,
+        bankName: isMe || isAdmin ? user?.bankName : undefined,
         attendedCount,
         absentValidCount,
         absentLateCount,
@@ -96,9 +100,9 @@ export async function GET(req: NextRequest) {
       totalCount: quarterMembers.length,
       currentUserId: currentUser.id,
       currentUserRole: currentUser.role,
+      quarterName: activeQuarter?.name,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Lỗi tải thống kê thành viên' }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tải thống kê thành viên' }, { status: 500 });
   }
 }
-

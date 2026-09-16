@@ -5,35 +5,31 @@ import { Navbar } from '@/components/Navbar';
 import { Card, Chip } from '@heroui/react';
 import { Reveal, InteractiveCard, StaggerContainer, StaggerItem } from '@/components/motion';
 import { formatMoney } from '@/lib/calculations';
-import { Wallet, History } from 'lucide-react';
+import type { AuthSessionUser } from '@/lib/auth';
+import type { TreasurySummary } from '@/lib/types';
+import { getErrorMessage } from '@/lib/errors';
+import { Wallet, History, AlertCircle, LoaderCircle } from 'lucide-react';
 
 export default function TreasuryPage() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<TreasurySummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [treasuryRes, userRes] = await Promise.all([
-        fetch('/api/treasury'),
-        fetch('/api/auth/me'),
-      ]);
-
-      const tData = await treasuryRes.json();
-      setData(tData);
-
-      const uData = await userRes.json();
-      setCurrentUser(uData.user);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [currentUser, setCurrentUser] = useState<AuthSessionUser | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    Promise.all([fetch('/api/treasury'), fetch('/api/auth/me')])
+      .then(async ([treasuryRes, userRes]) => {
+        const [treasuryData, userData] = await Promise.all([treasuryRes.json(), userRes.json()]);
+        if (!treasuryRes.ok) throw new Error(treasuryData.error || 'Không thể tải dữ liệu quỹ');
+        if (active) {
+          setData(treasuryData);
+          setCurrentUser(userData.user || null);
+        }
+      })
+      .catch((reason: unknown) => active && setError(getErrorMessage(reason)))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
   }, []);
 
   return (
@@ -53,8 +49,11 @@ export default function TreasuryPage() {
           </p>
         </Reveal>
 
+        {loading && <div className="club-state-panel"><LoaderCircle className="animate-spin" size={20} /> Đang đối soát quỹ…</div>}
+        {error && <div className="club-state-panel club-state-error"><AlertCircle size={20} /> {error}</div>}
+
         {/* Card Số dư quỹ */}
-        <Reveal delay={0.05}>
+        {!loading && !error && <Reveal delay={0.05}>
           <Card className="club-feature-panel bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/80 p-6 shadow-md space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-400">Số dư hiện tại</span>
@@ -86,10 +85,10 @@ export default function TreasuryPage() {
               </div>
             </div>
           </Card>
-        </Reveal>
+        </Reveal>}
 
         {/* Lịch sử biến động quỹ */}
-        <Reveal delay={0.1} className="space-y-4">
+        {!loading && !error && <Reveal delay={0.1} className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <History size={18} className="text-slate-500" />
@@ -102,7 +101,7 @@ export default function TreasuryPage() {
 
           <StaggerContainer className="space-y-2 text-xs">
             {data?.recentLogs && data.recentLogs.length > 0 ? (
-              data.recentLogs.map((log: any) => (
+              data.recentLogs.map((log) => (
                 <StaggerItem key={log.id}>
                   <InteractiveCard className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
@@ -126,7 +125,7 @@ export default function TreasuryPage() {
               <p className="text-slate-400 text-center py-6">Chưa có giao dịch quỹ phát sinh gần đây.</p>
             )}
           </StaggerContainer>
-        </Reveal>
+        </Reveal>}
       </main>
     </div>
   );

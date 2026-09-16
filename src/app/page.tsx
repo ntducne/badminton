@@ -1,18 +1,20 @@
 import React from 'react';
 import Link from 'next/link';
-import { Button, Chip, Card, CardBody } from '@heroui/react';
+import { redirect } from 'next/navigation';
+import { Button, Chip, Card } from '@heroui/react';
 import { Navbar } from '@/components/Navbar';
 import { Reveal, StaggerContainer, StaggerItem, InteractiveCard } from '@/components/motion';
 import { getCurrentUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
-import { formatMoney, formatMoneyShort, calculateSessionFinances } from '@/lib/calculations';
+import { formatMoney, formatMoneyShort, calculateSessionFinances, getNextSession } from '@/lib/calculations';
 import { Session, Quarter, QuarterMember, ShuttlecockBatch } from '@/lib/types';
-import { Calendar, Users, Wallet, Package, ArrowRight, UserCheck, AlertTriangle, CheckCircle2, Plus, Sparkles } from 'lucide-react';
+import { Calendar, Users, Wallet, Package, ArrowRight, UserCheck, AlertTriangle, CheckCircle2, Plus } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
+  if (!user) redirect('/login');
   const db = await getDb();
 
   // 1. Quý hiện tại
@@ -29,7 +31,7 @@ export default async function DashboardPage() {
     .sort({ sessionDate: -1, startTime: -1 })
     .toArray();
 
-  const nextSession = sessions.length > 0 ? sessions[0] : null;
+  const nextSession = getNextSession(sessions);
   const nextSessionCalc = nextSession ? calculateSessionFinances(nextSession) : null;
 
   // 4. Tồn kho cầu
