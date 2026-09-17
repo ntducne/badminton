@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
-import { Chip } from '@heroui/react';
+import { Button, Chip } from '@heroui/react';
 import { Reveal, InteractiveCard, StaggerContainer, StaggerItem } from '@/components/motion';
 import { formatMoney, formatMoneyShort } from '@/lib/calculations';
 import type { AuthSessionUser } from '@/lib/auth';
@@ -16,6 +16,8 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [quarterName, setQuarterName] = useState('Quý hiện tại');
+  const [quarterId, setQuarterId] = useState('');
+  const [quarterStatus, setQuarterStatus] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -27,6 +29,8 @@ export default function MembersPage() {
           setMembers(memberData.members || []);
           setCurrentUser(userData.user || null);
           setQuarterName(memberData.quarterName || 'Quý hiện tại');
+          setQuarterId(memberData.quarterId || '');
+          setQuarterStatus(memberData.quarterStatus || '');
         }
       })
       .catch((reason: unknown) => active && setError(getErrorMessage(reason)))
@@ -35,6 +39,23 @@ export default function MembersPage() {
   }, []);
 
   const isAdmin = currentUser?.role === 'OWNER' || currentUser?.role === 'ADMIN';
+
+  const handleQuarterAction = async (action: 'SETTLE' | 'REOPEN' | 'CLOSE') => {
+    if (!quarterId || !confirm(`Xác nhận thao tác ${action} cho ${quarterName}?`)) return;
+    const reason = action === 'REOPEN' ? prompt('Lý do mở lại quyết toán quý:')?.trim() : undefined;
+    if (action === 'REOPEN' && !reason) return;
+    try {
+      const response = await fetch(`/api/quarters/${quarterId}/settle`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'REOPEN' ? { action, reason } : { action }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Không thể cập nhật quý');
+      window.location.reload();
+    } catch (reasonValue: unknown) {
+      alert(getErrorMessage(reasonValue));
+    }
+  };
 
   return (
     <div className="club-page club-members min-h-screen pb-24 sm:pb-12">
@@ -52,6 +73,26 @@ export default function MembersPage() {
             Theo dõi tỷ lệ tham gia, tiền đóng sân quý, số tiền ứng và công nợ
           </p>
         </Reveal>
+
+        {!loading && !error && quarterId && (
+          <Reveal delay={0.03} className="flex flex-wrap gap-2">
+            <Button as="a" href={`/api/quarters/${quarterId}/export?format=csv`} size="sm" variant="flat" className="font-bold rounded-xl">
+              Xuất Excel (CSV)
+            </Button>
+            <Button as="a" href={`/api/quarters/${quarterId}/export?format=pdf`} size="sm" variant="flat" className="font-bold rounded-xl">
+              Xuất PDF
+            </Button>
+            {isAdmin && quarterStatus === 'ACTIVE' && (
+              <Button size="sm" color="primary" className="font-bold rounded-xl" onPress={() => handleQuarterAction('SETTLE')}>
+                Quyết toán quý
+              </Button>
+            )}
+            {currentUser?.role === 'OWNER' && quarterStatus === 'SETTLED' && <>
+              <Button size="sm" color="success" className="font-bold rounded-xl" onPress={() => handleQuarterAction('CLOSE')}>Đóng quý</Button>
+              <Button size="sm" color="warning" variant="flat" className="font-bold rounded-xl" onPress={() => handleQuarterAction('REOPEN')}>Mở lại</Button>
+            </>}
+          </Reveal>
+        )}
 
         {/* Thông báo quyền xem & bảo mật */}
         <Reveal delay={0.05}>
@@ -120,7 +161,7 @@ export default function MembersPage() {
                           <span className="font-extrabold text-blue-600">{m.absentValidCount} buổi</span>
                           {m.estimatedQuarterRefund > 0 && (
                             <span className="text-[10px] text-blue-500 font-semibold block">
-                              Hoàn ~{formatMoneyShort(m.estimatedQuarterRefund)}
+                              Hoàn {formatMoneyShort(m.estimatedQuarterRefund)}
                             </span>
                           )}
                         </div>
@@ -136,6 +177,12 @@ export default function MembersPage() {
                     {hasAccessToDebt ? (
                       <div className="mt-4 pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-4">
+                          <div>
+                            <span className="text-slate-400 block text-[11px]">Nghĩa vụ sân thực tế</span>
+                            <span className="font-bold text-slate-700">
+                              {formatMoney(m.actualQuarterObligation ?? 0)}
+                            </span>
+                          </div>
                           <div>
                             <span className="text-slate-400 block text-[11px]">Nợ các buổi</span>
                             <span className="font-bold text-slate-700">

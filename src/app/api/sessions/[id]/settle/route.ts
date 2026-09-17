@@ -16,9 +16,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const { action, notes } = await parseJsonBody(req, settleSchema);
+    const requestId = req.headers.get('x-request-id') || crypto.randomUUID();
 
     if (action === 'SETTLE') {
-      const result = await settleSession(id, user, notes);
+      const result = await settleSession(id, user, notes, requestId);
       return NextResponse.json({
         success: true,
         message: result.idempotent
@@ -29,10 +30,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (action === 'REOPEN') {
-      const session = await reopenSession(id, user, notes);
+      const session = await reopenSession(id, user, notes, requestId);
       return NextResponse.json({
         success: true,
-        message: `Đã mở lại buổi ${session.sessionCode}; kho và quỹ đã được đảo giao dịch.`,
+        message: `Đã mở lại buổi ${session.sessionCode}; kho đã được hoàn và công nợ cũ đã được hủy. Dòng tiền thực tế vẫn được giữ để đối soát.`,
         session,
       });
     }

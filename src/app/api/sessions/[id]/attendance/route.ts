@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { checkIsBeforeDeadline, calculateSessionFinances } from '@/lib/calculations';
-import { Session, AttendanceStatus } from '@/lib/types';
+import { Session, AttendanceStatus, Quarter } from '@/lib/types';
 import { isSessionMutable, sessionVersionFilter } from '@/lib/session-state';
 import { attendanceSchema, parseJsonBody, RequestValidationError, validationErrorResponse } from '@/lib/api-validation';
 
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const targetParticipant = session.participants[participantIndex];
+    const previousAttendanceStatus = targetParticipant.attendanceStatus;
 
     // Quyền: Member chỉ được tự sửa của mình; Admin/Owner sửa được của bất kỳ ai
     if (user.role === 'MEMBER' && targetParticipant.userId !== user.id) {
@@ -42,9 +43,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     let finalStatus: AttendanceStatus = 'ATTENDING';
+    const quarter = await db.collection<Quarter>('quarters').findOne({ id: session.quarterId });
+    const deadlineHours = quarter?.absenceDeadlineHours ?? 6;
 
     if (status === 'ABSENT') {
-      const isBeforeDeadline = checkIsBeforeDeadline(session.sessionDate, session.startTime);
+      const isBeforeDeadline = checkIsBeforeDeadline(session.sessionDate, session.startTime, deadlineHours);
       if (isBeforeDeadline || user.role === 'OWNER' || user.role === 'ADMIN') {
         // Báo trước 6 tiếng hoặc Admin override
         finalStatus = 'ABSENT_VALID';
@@ -79,6 +82,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (updateResult.modifiedCount !== 1) {
       return NextResponse.json({ error: 'Buổi vừa được cập nhật, vui lòng tải lại' }, { status: 409 });
     }
+    await db.collection('audit_logs').insertOne({
+      id: `audit:attendance:${crypto.randomUUID()}`,
+      entityType: 'SESSION_PARTICIPANT', entityId: targetParticipant.id, action: 'ATTENDANCE',
+      oldData: { attendanceStatus: previousAttendanceStatus },
+      newData: { attendanceStatus: finalStatus, sessionId: session.id },
+      userId: user.id, userName: user.name,
+      requestId: req.headers.get('x-request-id') || crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    });
 
     return NextResponse.json({
       success: true,
@@ -86,9 +98,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       calculation: calc,
       message:
         finalStatus === 'ABSENT_VALID'
-          ? 'Đã báo nghỉ hợp lệ (trước deadline 6 tiếng, được trừ tiền sân cuối quý)'
+          ? `Đã báo nghỉ hợp lệ (trước deadline ${deadlineHours} tiếng, không chịu tiền sân buổi này)`
           : finalStatus === 'ABSENT_LATE'
-          ? 'Báo nghỉ muộn sau deadline 6 tiếng (không được hoàn tiền sân cố định)'
+          ? `Báo nghỉ muộn sau deadline ${deadlineHours} tiếng (vẫn chịu phần tiền sân thực tế)`
           : 'Đã xác nhận tham gia buổi đánh',
     });
   } catch (error: unknown) {

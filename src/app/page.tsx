@@ -7,7 +7,8 @@ import { Reveal, StaggerContainer, StaggerItem, InteractiveCard } from '@/compon
 import { getCurrentUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { formatMoney, formatMoneyShort, calculateSessionFinances, getNextSession } from '@/lib/calculations';
-import { Session, Quarter, QuarterMember, ShuttlecockBatch } from '@/lib/types';
+import { paymentOutstanding } from '@/lib/finance-service';
+import { Session, Quarter, ShuttlecockBatch, Payment, TreasuryEntry } from '@/lib/types';
 import { Calendar, Users, Wallet, Package, ArrowRight, UserCheck, AlertTriangle, CheckCircle2, Plus } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -18,13 +19,10 @@ export default async function DashboardPage() {
   const db = await getDb();
 
   // 1. Quý hiện tại
-  const quarter = await db.collection<Quarter>('quarters').findOne({ status: 'ACTIVE' });
+  const quarter = await db.collection<Quarter>('quarters').findOne({ status: { $in: ['ACTIVE', 'SETTLED'] } });
   const quarterId = quarter?.id || 'q-2026-1';
 
-  // 2. Thành viên cố định
-  const members = await db.collection<QuarterMember>('quarter_members').find({ quarterId }).toArray();
-
-  // 3. Buổi đánh gần nhất / tiếp theo
+  // 2. Buổi đánh gần nhất / tiếp theo
   const sessions = await db
     .collection<Session>('sessions')
     .find({ quarterId })
@@ -39,18 +37,16 @@ export default async function DashboardPage() {
   const totalRemainingBalls = batches.reduce((sum, b) => sum + (b.remainingBalls || 0), 0);
 
   // 5. Thống kê quỹ & nợ
-  const totalMemberPaid = members.reduce((sum, m) => sum + (m.paidAmount || 0), 0);
-  const totalGuestRevenue = sessions.reduce((sum, s) => sum + (s.totalGuestRevenue || 0), 0);
-  const totalSessionsExpense = sessions.reduce((sum, s) => sum + (s.totalExpense || 0), 0);
-
-  let totalAdvancedByMembers = 0;
-  for (const s of sessions) {
-    for (const adv of s.advances || []) {
-      totalAdvancedByMembers += adv.amount || 0;
-    }
-  }
-
-  const currentFundBalance = (quarter?.startingBalance || 0) + totalMemberPaid + totalGuestRevenue - totalSessionsExpense;
+  const [entries, payments] = await Promise.all([
+    db.collection<TreasuryEntry>('treasury').find({ quarterId, status: 'POSTED' }).toArray(),
+    db.collection<Payment>('payments').find({ quarterId, status: { $nin: ['CANCELLED', 'REFUNDED'] } }).toArray(),
+  ]);
+  const totalMemberPaid = entries.filter((entry) => entry.direction === 'IN').reduce((sum, entry) => sum + entry.amount, 0);
+  const totalGuestRevenue = entries.filter((entry) => entry.type === 'GUEST_PAYMENT').reduce((sum, entry) => sum + entry.amount, 0);
+  const totalSessionsExpense = entries.filter((entry) => entry.direction === 'OUT').reduce((sum, entry) => sum + entry.amount, 0);
+  const totalAdvancedByMembers = payments.filter((payment) => payment.direction === 'PAYABLE')
+    .reduce((sum, payment) => sum + paymentOutstanding(payment), 0);
+  const currentFundBalance = (quarter?.startingBalance || 0) + totalMemberPaid - totalSessionsExpense;
 
   const attendingList = nextSession?.participants.filter((p) => p.attendanceStatus === 'ATTENDING') || [];
   const absentValidList = nextSession?.participants.filter((p) => p.attendanceStatus === 'ABSENT_VALID') || [];

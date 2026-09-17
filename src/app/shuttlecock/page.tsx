@@ -15,10 +15,10 @@ import {
 import { Navbar } from '@/components/Navbar';
 import { Reveal, InteractiveCard, StaggerContainer, StaggerItem } from '@/components/motion';
 import { formatMoney } from '@/lib/calculations';
-import { ShuttlecockBatch } from '@/lib/types';
+import { InventoryMovement, ShuttlecockBatch } from '@/lib/types';
 import type { AuthSessionUser } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/errors';
-import { Package, Plus, AlertTriangle, CheckCircle2, LoaderCircle } from 'lucide-react';
+import { Package, Plus, AlertTriangle, CheckCircle2, LoaderCircle, History, Wrench } from 'lucide-react';
 
 export default function ShuttlecockPage() {
   const [batches, setBatches] = useState<ShuttlecockBatch[]>([]);
@@ -26,6 +26,8 @@ export default function ShuttlecockPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthSessionUser | null>(null);
+  const [movements, setMovements] = useState<InventoryMovement[]>([]);
+  const [isReconciled, setIsReconciled] = useState(true);
 
   // Form state
   const [brandName, setBrandName] = useState('Yonex AS-50');
@@ -34,6 +36,7 @@ export default function ShuttlecockPage() {
   const [pricePerTube, setPricePerTube] = useState(310000);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isPaidFromTreasury, setIsPaidFromTreasury] = useState(false);
 
   const loadData = async () => {
     try {
@@ -46,6 +49,8 @@ export default function ShuttlecockPage() {
       const data = await shuttleRes.json();
       setBatches(data.batches || []);
       setTotalRemaining(data.totalRemaining || 0);
+      setMovements(data.movements || []);
+      setIsReconciled(Boolean(data.isReconciled));
 
       const uData = await userRes.json();
       setCurrentUser(uData.user);
@@ -74,6 +79,7 @@ export default function ShuttlecockPage() {
           ballsPerTube,
           pricePerTube,
           notes,
+          isPaidFromTreasury,
         }),
       });
 
@@ -86,6 +92,27 @@ export default function ShuttlecockPage() {
       alert(getErrorMessage(err, 'Không thể nhập kho cầu'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const adjustStock = async (batch: ShuttlecockBatch, action: 'DAMAGED' | 'ADJUSTMENT') => {
+    const raw = prompt(action === 'DAMAGED' ? 'Số quả hỏng/mất:' : 'Số tồn thực tế:', String(action === 'DAMAGED' ? 1 : batch.remainingBalls));
+    if (raw === null) return;
+    const value = Number(raw);
+    const reason = prompt('Lý do điều chỉnh:')?.trim();
+    if (!Number.isInteger(value) || value < 0 || !reason) return alert('Dữ liệu điều chỉnh không hợp lệ');
+    try {
+      const response = await fetch('/api/shuttle', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'DAMAGED'
+          ? { action, batchId: batch.id, quantity: value, reason, version: batch.version || 0 }
+          : { action, batchId: batch.id, newRemaining: value, reason, version: batch.version || 0 }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Không thể điều chỉnh kho');
+      await loadData();
+    } catch (reasonValue: unknown) {
+      alert(getErrorMessage(reasonValue));
     }
   };
 
@@ -115,6 +142,8 @@ export default function ShuttlecockPage() {
             </Button>
           )}
         </Reveal>
+
+        {!isReconciled && <div className="club-state-panel club-state-error"><AlertTriangle size={20} /> Tồn kho document không khớp sổ movement. Hãy chạy kiểm tra integrity.</div>}
 
         {/* Tồn kho tổng quan */}
         <Reveal delay={0.05}>
@@ -200,6 +229,10 @@ export default function ShuttlecockPage() {
                           {b.remainingBalls} / {b.totalBalls} <span className="text-xs font-normal">quả</span>
                         </span>
                       </div>
+                      {isAdmin && <div className="flex gap-1">
+                        <Button isIconOnly size="sm" variant="flat" color="warning" title="Ghi nhận hỏng/mất" onPress={() => adjustStock(b, 'DAMAGED')}><AlertTriangle size={14} /></Button>
+                        <Button isIconOnly size="sm" variant="flat" title="Kiểm kê" onPress={() => adjustStock(b, 'ADJUSTMENT')}><Wrench size={14} /></Button>
+                      </div>}
                     </div>
                   </div>
                 </InteractiveCard>
@@ -207,6 +240,15 @@ export default function ShuttlecockPage() {
             ))}
           </StaggerContainer>}
           {!loading && batches.length === 0 && <div className="club-state-panel">Chưa có lô cầu nào được nhập.</div>}
+        </Reveal>
+
+        <Reveal delay={0.12} className="space-y-3">
+          <div className="flex items-center gap-2"><History size={18} /><h2 className="font-extrabold text-slate-800 text-base">Sổ biến động kho</h2></div>
+          <div className="space-y-2">
+            {movements.slice(0, 30).map((movement) => <Card key={movement.id} className="p-3 rounded-2xl border border-slate-200/80">
+              <div className="flex justify-between gap-3 text-xs"><div><strong>{movement.type}</strong><p className="text-slate-400">{movement.reason || movement.sessionId || movement.batchId}</p></div><span className={movement.quantity >= 0 ? 'font-black text-emerald-600' : 'font-black text-red-600'}>{movement.quantity >= 0 ? '+' : ''}{movement.quantity} quả</span></div>
+            </Card>)}
+          </div>
         </Reveal>
 
         {/* Modal Nhập kho */}
@@ -243,6 +285,11 @@ export default function ShuttlecockPage() {
                     size="sm"
                     required
                   />
+
+                  <label className="flex items-center gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-200/60">
+                    <input type="checkbox" checked={isPaidFromTreasury} onChange={(event) => setIsPaidFromTreasury(event.target.checked)} />
+                    <span>Đã thanh toán trực tiếp từ quỹ (bỏ chọn nếu thành viên mua ứng)</span>
+                  </label>
 
                   <div className="grid grid-cols-2 gap-3">
                     <Input

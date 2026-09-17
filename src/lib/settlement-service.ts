@@ -6,9 +6,9 @@ import { canTransitionSession, sessionVersionFilter } from './session-state';
 import type { AuthSessionUser } from './auth';
 import type {
   InventoryMovement,
+  Payment,
   Session,
   SessionSettlement,
-  SettlementTreasuryEntry,
   ShuttlecockBatch,
   SessionStatus,
 } from './types';
@@ -41,7 +41,8 @@ async function loadSession(id: string, mongoSession: ClientSession): Promise<Ses
 export async function settleSession(
   sessionId: string,
   user: AuthSessionUser,
-  notes?: string
+  notes?: string,
+  requestId = crypto.randomUUID()
 ): Promise<SettlementResult> {
   const client = await getMongoClient();
   const db = client.db(process.env.MONGO_DB_DATABASE || 'badminton_db');
@@ -76,7 +77,49 @@ export async function settleSession(
         throw new SettlementError(`Không thể quyết toán buổi ở trạng thái ${session.status}`, 409);
       }
 
-      const calculation = calculateSessionFinances(session);
+      const stockAllocations: Array<{
+        usageId: string;
+        batchId: string;
+        brandName: string;
+        quantity: number;
+        unitCost: number;
+      }> = [];
+      const resolvedUsages = [];
+      for (const usage of session.shuttleUsages) {
+        let remaining = usage.ballsUsed;
+        const candidates = usage.batchId && usage.batchId !== 'FIFO'
+          ? await db.collection<ShuttlecockBatch>('shuttle_batches')
+            .find({ id: usage.batchId }, { session: mongoSession }).toArray()
+          : await db.collection<ShuttlecockBatch>('shuttle_batches')
+            .find({ remainingBalls: { $gt: 0 } }, { session: mongoSession })
+            .sort({ purchaseDate: 1, createdAt: 1, id: 1 }).toArray();
+        let totalCost = 0;
+        for (const batch of candidates) {
+          if (remaining <= 0) break;
+          const quantity = Math.min(remaining, batch.remainingBalls);
+          if (quantity <= 0) continue;
+          stockAllocations.push({
+            usageId: usage.id,
+            batchId: batch.id,
+            brandName: batch.brandName,
+            quantity,
+            unitCost: batch.pricePerBall,
+          });
+          totalCost += quantity * batch.pricePerBall;
+          remaining -= quantity;
+        }
+        if (remaining > 0) {
+          throw new SettlementError(`Không đủ ${usage.ballsUsed} quả cầu cho ${usage.brandName}`, 409);
+        }
+        resolvedUsages.push({
+          ...usage,
+          pricePerBall: usage.ballsUsed > 0 ? Math.ceil(totalCost / usage.ballsUsed) : 0,
+          totalCost,
+        });
+      }
+
+      const sessionForCalculation = { ...session, shuttleUsages: resolvedUsages };
+      const calculation = calculateSessionFinances(sessionForCalculation);
       if (calculation.activeCount === 0) {
         throw new SettlementError('Chưa có người chơi nào được điểm danh tham gia');
       }
@@ -85,26 +128,25 @@ export async function settleSession(
       const settlementId = `settlement:${session.id}:v${nextSettlementVersion}`;
       const now = new Date().toISOString();
 
-      for (const usage of session.shuttleUsages) {
-        if (!usage.batchId || usage.ballsUsed <= 0) continue;
+      for (const allocation of stockAllocations) {
         const stockResult = await db.collection<ShuttlecockBatch>('shuttle_batches').updateOne(
-          { id: usage.batchId, remainingBalls: { $gte: usage.ballsUsed } },
-          { $inc: { remainingBalls: -usage.ballsUsed } },
+          { id: allocation.batchId, remainingBalls: { $gte: allocation.quantity } },
+          { $inc: { remainingBalls: -allocation.quantity, version: 1 }, $set: { updatedAt: now } },
           { session: mongoSession }
         );
         if (stockResult.modifiedCount !== 1) {
-          throw new SettlementError(`Lô ${usage.brandName} không đủ ${usage.ballsUsed} quả cầu`, 409);
+          throw new SettlementError(`Lô ${allocation.brandName} không đủ ${allocation.quantity} quả cầu`, 409);
         }
 
         const movement: InventoryMovement = {
-          id: `${settlementId}:usage:${usage.id}`,
-          batchId: usage.batchId,
+          id: `${settlementId}:usage:${allocation.usageId}:batch:${allocation.batchId}`,
+          batchId: allocation.batchId,
           sessionId: session.id,
           settlementId,
-          usageId: usage.id,
+          usageId: allocation.usageId,
           type: 'SESSION_USAGE',
-          quantity: -usage.ballsUsed,
-          unitCost: usage.pricePerBall,
+          quantity: -allocation.quantity,
+          unitCost: allocation.unitCost,
           createdByUserId: user.id,
           createdByName: user.name,
           createdAt: now,
@@ -126,22 +168,34 @@ export async function settleSession(
       };
       await db.collection<SessionSettlement>('session_settlements').insertOne(settlement, { session: mongoSession });
 
-      if (calculation.existingGuests > 0 && session.guestSurcharge > 0) {
-        const totalSurcharge = calculation.existingGuests * session.guestSurcharge;
-        const treasuryEntry: SettlementTreasuryEntry = {
-          id: `${settlementId}:guest-surcharge`,
-          quarterId: session.quarterId,
+      const participantsWithPayments = [];
+      for (const participant of calculation.participants) {
+        if (participant.netSettlement === 0) {
+          participantsWithPayments.push(participant);
+          continue;
+        }
+        const paymentId = `${settlementId}:payment:${participant.id}`;
+        const payment: Payment = {
+          id: paymentId,
+          payerType: participant.isGuest ? 'GUEST' : 'MEMBER',
+          payerId: participant.userId,
+          payerName: participant.userName,
+          participantId: participant.id,
           sessionId: session.id,
           settlementId,
-          amount: totalSurcharge,
-          type: 'GUEST_SURCHARGE',
-          status: 'POSTED',
-          description: `Phụ thu ${calculation.existingGuests} khách giao lưu tại buổi ${session.sessionCode}`,
-          createdByUserId: user.id,
-          createdByName: user.name,
+          quarterId: session.quarterId,
+          direction: participant.netSettlement > 0 ? 'RECEIVABLE' : 'PAYABLE',
+          expectedAmount: Math.abs(participant.netSettlement),
+          paidAmount: 0,
+          refundedAmount: 0,
+          status: 'PENDING',
+          dueAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+          version: 0,
           createdAt: now,
+          updatedAt: now,
         };
-        await db.collection<SettlementTreasuryEntry>('treasury').insertOne(treasuryEntry, { session: mongoSession });
+        await db.collection<Payment>('payments').insertOne(payment, { session: mongoSession });
+        participantsWithPayments.push({ ...participant, paymentId });
       }
 
       const nextVersion = (session.version || 0) + 1;
@@ -156,7 +210,8 @@ export async function settleSession(
         settledByUserId: user.id,
         settledByName: user.name,
         settlementNotes: notes || session.settlementNotes,
-        participants: calculation.participants,
+        shuttleUsages: resolvedUsages,
+        participants: participantsWithPayments,
         totalCourtFee: calculation.totalCourtFee,
         totalShuttleFee: calculation.totalShuttleFee,
         totalDrinkFee: calculation.totalDrinkFee,
@@ -183,6 +238,7 @@ export async function settleSession(
         newData: { status: 'SETTLED', settlementId, version: nextVersion },
         userId: user.id,
         userName: user.name,
+        requestId,
         createdAt: now,
       }, { session: mongoSession });
 
@@ -202,7 +258,8 @@ export async function settleSession(
 export async function reopenSession(
   sessionId: string,
   user: AuthSessionUser,
-  reason?: string
+  reason?: string,
+  requestId = crypto.randomUUID()
 ): Promise<Session> {
   if (!reason?.trim()) throw new SettlementError('Vui lòng nhập lý do mở lại buổi đánh');
 
@@ -237,7 +294,7 @@ export async function reopenSession(
         const quantity = Math.abs(movement.quantity);
         await db.collection<ShuttlecockBatch>('shuttle_batches').updateOne(
           { id: movement.batchId },
-          { $inc: { remainingBalls: quantity } },
+          { $inc: { remainingBalls: quantity, version: 1 }, $set: { updatedAt: now } },
           { session: mongoSession }
         );
         await db.collection<InventoryMovement>('inventory_movements').insertOne({
@@ -252,30 +309,22 @@ export async function reopenSession(
         }, { session: mongoSession });
       }
 
-      const treasuryEntries = await db.collection<SettlementTreasuryEntry>('treasury')
-        .find(
-          { settlementId: settlement.id, type: 'GUEST_SURCHARGE', status: 'POSTED' },
-          { session: mongoSession, projection: { _id: 0 } }
-        )
-        .toArray();
-      for (const entry of treasuryEntries) {
-        await db.collection<SettlementTreasuryEntry>('treasury').insertOne({
-          ...entry,
-          id: `reversal:${entry.id}`,
-          type: 'REVERSAL',
-          amount: -entry.amount,
-          status: 'POSTED',
-          reversesEntryId: entry.id,
-          description: `Đảo giao dịch: ${entry.description}`,
-          createdByUserId: user.id,
-          createdByName: user.name,
-          createdAt: now,
-        }, { session: mongoSession });
-        await db.collection<SettlementTreasuryEntry>('treasury').updateOne(
-          { id: entry.id },
-          { $set: { status: 'REVERSED' } },
+      const payments = await db.collection<Payment>('payments').find(
+        { settlementId: settlement.id },
+        { session: mongoSession }
+      ).toArray();
+      for (const payment of payments) {
+        const paymentUpdate = await db.collection<Payment>('payments').updateOne(
+          { id: payment.id, status: payment.status, version: payment.version || 0 },
+          {
+            $set: { status: 'CANCELLED', cancelledAt: now, cancelledReason: reason.trim(), updatedAt: now },
+            $inc: { version: 1 },
+          },
           { session: mongoSession }
         );
+        if (paymentUpdate.modifiedCount !== 1) {
+          throw new SettlementError('Công nợ vừa được cập nhật, vui lòng thử lại', 409);
+        }
       }
 
       await db.collection<SessionSettlement>('session_settlements').updateOne(
@@ -300,6 +349,11 @@ export async function reopenSession(
             version: nextVersion,
             reopenedAt: now,
             reopenedByUserId: user.id,
+            participants: session.participants.map((participant) => {
+              const mutableParticipant = { ...participant };
+              delete mutableParticipant.paymentId;
+              return mutableParticipant;
+            }),
             updatedAt: now,
           },
           $unset: {
@@ -324,6 +378,7 @@ export async function reopenSession(
         newData: { status: 'REOPENED', reason: reason.trim(), version: nextVersion },
         userId: user.id,
         userName: user.name,
+        requestId,
         createdAt: now,
       }, { session: mongoSession });
 
@@ -344,7 +399,8 @@ export async function transitionSessionState(
   sessionId: string,
   targetStatus: Extract<SessionStatus, 'OPEN' | 'LOCKED' | 'CANCELLED'>,
   user: AuthSessionUser,
-  reason?: string
+  reason?: string,
+  requestId = crypto.randomUUID()
 ): Promise<Session> {
   const client = await getMongoClient();
   const db = client.db(process.env.MONGO_DB_DATABASE || 'badminton_db');
@@ -381,6 +437,7 @@ export async function transitionSessionState(
         newData: { status: targetStatus, version: nextVersion, reason: reason?.trim() },
         userId: user.id,
         userName: user.name,
+        requestId,
         createdAt: now,
       }, { session: mongoSession });
       result = updateResult;

@@ -16,7 +16,10 @@ export async function seedMongo() {
   await db.collection('shuttle_batches').deleteMany({});
   await db.collection('drink_items').deleteMany({});
   await db.collection('payments').deleteMany({});
+  await db.collection('payment_events').deleteMany({});
   await db.collection('treasury').deleteMany({});
+  await db.collection('session_settlements').deleteMany({});
+  await db.collection('inventory_movements').deleteMany({});
   await db.collection('audit_logs').deleteMany({});
 
   const hashedPassword = await bcrypt.hash('123456', 10);
@@ -54,8 +57,16 @@ export async function seedMongo() {
     startDate: '2026-01-01',
     endDate: '2026-03-31',
     status: 'ACTIVE' as QuarterStatus,
+    version: 0,
+    settlementVersion: 0,
     defaultGuestSurcharge: 10000,
     defaultTargetPlayers: 8,
+    absenceDeadlineHours: 6,
+    courtFeePolicy: 'LIABLE_MEMBERS_AND_GUESTS',
+    roundingUnit: 1000,
+    cancellationFeePolicy: 'NONE',
+    memberJoinPolicy: 'PRORATED_BY_SESSION',
+    balanceCarryPolicy: 'SETTLE_NOW',
     autoTransferBalance: true,
     startingBalance: 0,
     currentBalance: 2080000, // 8 người x 260k
@@ -80,6 +91,41 @@ export async function seedMongo() {
     notes: 'Thành viên cố định quý 1',
   }));
   await db.collection('quarter_members').insertMany(quarterMembers);
+
+  const seededAt = new Date().toISOString();
+  await db.collection('payments').insertMany(quarterMembers.map((member) => ({
+    id: `payment-quarter-${member.id}`,
+    payerType: 'MEMBER',
+    payerId: member.userId,
+    payerName: member.userName,
+    quarterId: member.quarterId,
+    direction: 'RECEIVABLE',
+    expectedAmount: member.fixedCourtFee,
+    paidAmount: member.paidAmount,
+    refundedAmount: 0,
+    method: 'BANK_TRANSFER',
+    status: 'PAID',
+    reference: 'SEED_QUARTER_FEE',
+    confirmedBy: 'u-tung',
+    confirmedAt: seededAt,
+    dueAt: seededAt,
+    version: 0,
+    createdAt: seededAt,
+    updatedAt: seededAt,
+  })));
+  await db.collection('treasury').insertMany(quarterMembers.map((member) => ({
+    id: `treasury-quarter-${member.id}`,
+    quarterId: member.quarterId,
+    paymentId: `payment-quarter-${member.id}`,
+    type: 'QUARTER_FEE',
+    amount: member.paidAmount,
+    direction: 'IN',
+    status: 'POSTED',
+    description: `Phí quý của ${member.userName}`,
+    createdByUserId: 'u-tung',
+    createdByName: 'Nguyễn Đức Tùng',
+    createdAt: seededAt,
+  })));
 
   // 4. Địa điểm sân (Venue)
   const venue = {
@@ -123,7 +169,7 @@ export async function seedMongo() {
     tubeQuantity: 5,
     ballsPerTube: 12,
     totalBalls: 60,
-    remainingBalls: 56, // Đã dùng 4 quả ở buổi 15
+    remainingBalls: 60,
     pricePerTube: 310000,
     pricePerBall: Math.ceil(310000 / 12), // ~25.834đ
     purchaseDate: '2026-01-05',
@@ -131,8 +177,22 @@ export async function seedMongo() {
     payerName: 'Nguyễn Đức Tùng',
     isPaidFromTreasury: false,
     notes: 'Tùng mua ứng 5 ống',
+    version: 0,
+    createdAt: seededAt,
+    updatedAt: seededAt,
   };
   await db.collection('shuttle_batches').insertOne(shuttleBatch);
+  await db.collection('inventory_movements').insertOne({
+    id: `inventory:purchase:${shuttleBatch.id}`,
+    batchId: shuttleBatch.id,
+    type: 'PURCHASE',
+    quantity: shuttleBatch.totalBalls,
+    unitCost: shuttleBatch.pricePerBall,
+    reason: 'Dữ liệu seed',
+    createdByUserId: 'u-tung',
+    createdByName: 'Nguyễn Đức Tùng',
+    createdAt: seededAt,
+  });
 
   // 7. Danh mục nước uống
   const drinks = [
@@ -344,10 +404,10 @@ export async function seedMongo() {
         guestSurcharge: 10000,
         totalCost: 48000,
         totalAdvanced: 0,
-        totalPaid: 48000, // Đã thanh toán
-        debtAmount: 0,
-        netSettlement: 0,
-        paymentStatus: 'PAID' as PaymentStatus,
+        totalPaid: 0,
+        debtAmount: 48000,
+        netSettlement: 48000,
+        paymentStatus: 'UNPAID' as PaymentStatus,
       },
       {
         id: 'p-guest-2',

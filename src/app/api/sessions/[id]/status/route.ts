@@ -18,7 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       id,
       status,
       user,
-      reason
+      reason,
+      req.headers.get('x-request-id') || crypto.randomUUID()
     );
     return NextResponse.json({ success: true, session });
   } catch (error: unknown) {

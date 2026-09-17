@@ -92,6 +92,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (updateResult.modifiedCount !== 1) {
       return NextResponse.json({ error: 'Buổi vừa được cập nhật, vui lòng tải lại' }, { status: 409 });
     }
+    await db.collection('audit_logs').insertOne({
+      id: `audit:session:update:${crypto.randomUUID()}`,
+      entityType: 'SESSION', entityId: id, action: 'UPDATE',
+      oldData: { version: existing.version || 0 },
+      newData: { version: mergedSession.version, fields: Object.keys(updatedData) },
+      userId: user.id, userName: user.name,
+      requestId: req.headers.get('x-request-id') || crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    });
 
     return NextResponse.json({ success: true, session: mergedSession, calculation: calc });
   } catch (error: unknown) {

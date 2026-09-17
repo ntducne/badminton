@@ -6,7 +6,23 @@ export type SessionStatus = 'DRAFT' | 'OPEN' | 'LOCKED' | 'SETTLED' | 'REOPENED'
 
 export type SettlementStatus = 'POSTED' | 'REVERSED';
 
-export type InventoryMovementType = 'SESSION_USAGE' | 'REVERSAL';
+export type TreasuryEntryType =
+  | 'QUARTER_FEE'
+  | 'GUEST_PAYMENT'
+  | 'MEMBER_PAYMENT'
+  | 'COURT_EXPENSE'
+  | 'SHUTTLE_PURCHASE'
+  | 'ADVANCE_REFUND'
+  | 'MEMBER_REFUND'
+  | 'ADJUSTMENT'
+  | 'REVERSAL';
+
+export type TreasuryDirection = 'IN' | 'OUT';
+export type TreasuryEntryStatus = 'PENDING' | 'POSTED' | 'REVERSED';
+export type PaymentDirection = 'RECEIVABLE' | 'PAYABLE';
+export type PaymentRecordStatus = 'PENDING' | 'PARTIAL' | 'PAID' | 'REFUNDED' | 'CANCELLED';
+
+export type InventoryMovementType = 'PURCHASE' | 'SESSION_USAGE' | 'DAMAGED' | 'ADJUSTMENT' | 'REVERSAL';
 
 export type AttendanceStatus = 'ATTENDING' | 'ABSENT_VALID' | 'ABSENT_LATE' | 'NOT_CONFIRMED';
 
@@ -44,11 +60,22 @@ export interface Quarter {
   startDate: string;
   endDate: string;
   status: QuarterStatus;
+  version?: number;
   defaultGuestSurcharge: number;
   defaultTargetPlayers: number;
+  absenceDeadlineHours?: number;
+  courtFeePolicy?: 'LIABLE_MEMBERS_AND_GUESTS';
+  roundingUnit?: number;
+  cancellationFeePolicy?: 'NONE' | 'ACTUAL_COST';
+  memberJoinPolicy?: 'PRORATED_BY_SESSION';
+  balanceCarryPolicy?: 'SETTLE_NOW' | 'CARRY_FORWARD';
   autoTransferBalance: boolean;
   startingBalance: number;
   currentBalance: number;
+  settlementVersion?: number;
+  currentSettlementId?: string;
+  settledAt?: string;
+  settledByUserId?: string;
   notes?: string;
   createdAt: string;
 }
@@ -128,10 +155,12 @@ export interface SessionParticipant {
   guestSurcharge: number;
   totalCost: number;
   totalAdvanced: number;
+  totalReimbursed?: number;
   totalPaid: number;
   debtAmount: number;
   netSettlement: number; // >0: phải nộp thêm; <0: nhóm nợ hoàn trả
   paymentStatus: PaymentStatus;
+  paymentId?: string;
 }
 
 export interface ShuttlecockBatch {
@@ -149,6 +178,9 @@ export interface ShuttlecockBatch {
   payerName?: string;
   isPaidFromTreasury: boolean;
   notes?: string;
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ShuttlecockUsage {
@@ -270,30 +302,72 @@ export interface SessionSettlement {
 export interface InventoryMovement {
   id: string;
   batchId: string;
-  sessionId: string;
-  settlementId: string;
-  usageId: string;
+  sessionId?: string;
+  settlementId?: string;
+  usageId?: string;
   type: InventoryMovementType;
   quantity: number;
   unitCost: number;
   reversesMovementId?: string;
+  reason?: string;
   createdByUserId: string;
   createdByName: string;
   createdAt: string;
 }
 
-export interface SettlementTreasuryEntry {
+export interface TreasuryEntry {
   id: string;
   quarterId: string;
-  sessionId: string;
-  settlementId: string;
+  sessionId?: string;
+  settlementId?: string;
+  paymentId?: string;
   amount: number;
-  type: 'GUEST_SURCHARGE' | 'REVERSAL';
-  status: SettlementStatus;
+  direction: TreasuryDirection;
+  type: TreasuryEntryType;
+  status: TreasuryEntryStatus;
   description: string;
   reversesEntryId?: string;
   createdByUserId: string;
   createdByName: string;
+  createdAt: string;
+}
+
+export interface Payment {
+  id: string;
+  payerType: 'MEMBER' | 'GUEST';
+  payerId?: string;
+  payerName: string;
+  participantId?: string;
+  sessionId?: string;
+  settlementId?: string;
+  quarterId?: string;
+  quarterSettlementId?: string;
+  direction: PaymentDirection;
+  expectedAmount: number;
+  paidAmount: number;
+  refundedAmount: number;
+  method?: PaymentMethod;
+  status: PaymentRecordStatus;
+  reference?: string;
+  confirmedBy?: string;
+  confirmedAt?: string;
+  cancelledAt?: string;
+  cancelledReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  dueAt?: string;
+  version?: number;
+}
+
+export interface PaymentEvent {
+  id: string;
+  paymentId: string;
+  action: 'CONFIRM' | 'REFUND';
+  amount: number;
+  method: PaymentMethod;
+  reference?: string;
+  confirmedBy: string;
+  confirmedByName: string;
   createdAt: string;
 }
 
@@ -337,7 +411,51 @@ export interface AuditLog {
   newData?: unknown;
   userId: string;
   userName: string;
+  requestId?: string;
+  reason?: string;
   createdAt: string;
+}
+
+export interface QuarterSettlementLine {
+  quarterMemberId: string;
+  userId: string;
+  userName: string;
+  joinedDate: string;
+  leftDate?: string;
+  liableSessionCount: number;
+  attendedCount: number;
+  absentValidCount: number;
+  absentLateCount: number;
+  actualCourtObligation: number;
+  quarterFeePaid: number;
+  additionalPaid: number;
+  finalBalance: number;
+  paymentId?: string;
+  details: Array<{
+    sessionId: string;
+    sessionCode: string;
+    sessionDate: string;
+    attendanceStatus: AttendanceStatus;
+    courtFeeShare: number;
+  }>;
+}
+
+export interface QuarterSettlement {
+  id: string;
+  quarterId: string;
+  version: number;
+  status: 'POSTED' | 'REVERSED';
+  lines: QuarterSettlementLine[];
+  totalObligation: number;
+  totalQuarterFeesPaid: number;
+  totalReceivable: number;
+  totalPayable: number;
+  settledByUserId: string;
+  settledByName: string;
+  settledAt: string;
+  notes?: string;
+  reversedAt?: string;
+  reversalReason?: string;
 }
 
 export interface MemberReport {
@@ -352,6 +470,8 @@ export interface MemberReport {
   fixedCourtFee: number;
   paidCourtFee: number;
   estimatedQuarterRefund: number;
+  actualQuarterObligation?: number;
+  quarterBalance?: number;
   totalSessionDebt: number | null;
   totalAdvanced: number | null;
   netDebt: number | null;
@@ -366,7 +486,13 @@ export interface TreasurySummary {
   totalSessionsExpense: number;
   totalAdvancedByMembers: number;
   currentFundBalance: number;
-  recentLogs: TreasuryLog[];
+  totalIncome: number;
+  totalExpense: number;
+  totalReceivable: number;
+  totalPayable: number;
+  incomeByType: Partial<Record<TreasuryEntryType, number>>;
+  expenseByType: Partial<Record<TreasuryEntryType, number>>;
+  recentLogs: TreasuryEntry[];
 }
 
 export type SessionCalculation = ReturnType<typeof import('./calculations').calculateSessionFinances>;

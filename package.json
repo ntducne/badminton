@@ -14,7 +14,15 @@
     "test:stage2": "node --env-file=.env.local tests/stage1-integration.mjs",
     "test:integration": "node --env-file=.env.local tests/stage1-integration.mjs",
     "seed": "node --env-file=.env.local --experimental-strip-types src/lib/seed-mongo.ts",
-    "migrate:stage1": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage1.ts"
+    "migrate:stage1": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage1.ts",
+    "migrate:stage34": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage34.ts --apply",
+    "migrate:stage34:dry": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage34.ts",
+    "migrate:stage34:rollback": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage34.ts --rollback",
+    "migrate:stage567": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage567.ts --apply",
+    "migrate:stage567:dry": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage567.ts",
+    "migrate:stage567:rollback": "node --env-file=.env.local --experimental-strip-types src/lib/migrate-stage567.ts --rollback",
+    "backup:db": "node --env-file=.env.local --experimental-strip-types src/lib/backup-mongo.ts",
+    "check:integrity": "node --env-file=.env.local --experimental-strip-types src/lib/check-integrity.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.10",

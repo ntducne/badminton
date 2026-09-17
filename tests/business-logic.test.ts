@@ -8,6 +8,10 @@ import {
 import { Session } from '../src/lib/types';
 import { canTransitionSession, isSessionMutable } from '../src/lib/session-state';
 import { createSessionSchema, settleSchema, updateSessionSchema, vietQrQuerySchema } from '../src/lib/api-validation';
+import { paymentOutstanding, paymentStatus } from '../src/lib/finance-service';
+import type { Payment } from '../src/lib/types';
+import { calculateQuarterSettlement } from '../src/lib/quarter-service';
+import type { Quarter, QuarterMember } from '../src/lib/types';
 
 describe('Badminton Business Logic & Calculations', () => {
   test('Validation từ chối dữ liệu giả mạo và giới hạn VietQR', () => {
@@ -18,6 +22,19 @@ describe('Badminton Business Logic & Calculations', () => {
     expect(settleSchema.safeParse({ action: 'REOPEN', notes: '' }).success).toBe(false);
     expect(vietQrQuerySchema.safeParse({ amount: 0, description: 'Test' }).success).toBe(false);
     expect(vietQrQuerySchema.safeParse({ amount: 10000, description: 'Test' }).success).toBe(true);
+    expect(vietQrQuerySchema.safeParse({ paymentId: 'payment-1', description: 'Test' }).success).toBe(true);
+  });
+  test('Công nợ hỗ trợ thanh toán một phần và hoàn tiền', () => {
+    const payment = {
+      expectedAmount: 100000, paidAmount: 40000, refundedAmount: 0, status: 'PARTIAL',
+    } as Payment;
+    expect(paymentOutstanding(payment)).toBe(60000);
+    expect(paymentStatus(payment)).toBe('PARTIAL');
+    payment.paidAmount = 100000;
+    expect(paymentStatus(payment)).toBe('PAID');
+    payment.refundedAmount = 25000;
+    expect(paymentOutstanding(payment)).toBe(25000);
+    expect(paymentStatus(payment)).toBe('PARTIAL');
   });
   test('State machine chỉ cho phép các chuyển trạng thái an toàn', () => {
     expect(canTransitionSession('OPEN', 'SETTLED')).toBe(true);
@@ -27,6 +44,27 @@ describe('Badminton Business Logic & Calculations', () => {
     expect(isSessionMutable({ status: 'OPEN', isSettled: false })).toBe(true);
     expect(isSessionMutable({ status: 'LOCKED', isSettled: false })).toBe(false);
     expect(isSessionMutable({ status: 'SETTLED', isSettled: true })).toBe(false);
+  });
+  test('Quyết toán quý dùng chi phí sân thực tế và tính nghỉ muộn', () => {
+    const quarter = {
+      id: 'q-1', roundingUnit: 1000, cancellationFeePolicy: 'NONE',
+    } as Quarter;
+    const member = {
+      id: 'qm-1', quarterId: 'q-1', userId: 'u-1', userName: 'An',
+      joinedDate: '2026-01-01', fixedCourtFee: 260000, paidAmount: 260000,
+    } as QuarterMember;
+    const makeSession = (id: string, status: 'ATTENDING' | 'ABSENT_VALID' | 'ABSENT_LATE', share: number) => ({
+      id, quarterId: 'q-1', status: 'SETTLED', sessionDate: `2026-01-0${id}`,
+      sessionCode: `B-${id}`, participants: [{ userId: 'u-1', attendanceStatus: status, courtFeeShare: share }],
+    }) as Session;
+    const [line] = calculateQuarterSettlement(quarter, [member], [
+      makeSession('1', 'ATTENDING', 25000),
+      makeSession('2', 'ABSENT_VALID', 0),
+      makeSession('3', 'ABSENT_LATE', 25000),
+    ]);
+    expect(line.actualCourtObligation).toBe(50000);
+    expect(line.liableSessionCount).toBe(2);
+    expect(line.finalBalance).toBe(-210000);
   });
   test('Dashboard chọn đúng buổi tương lai gần nhất', () => {
     const sessions = [
@@ -137,21 +175,21 @@ describe('Badminton Business Logic & Calculations', () => {
     expect(finances.neededGuests).toBe(0);
     expect(finances.playerStatusText).toBe('Đủ người');
 
-    // 2. Tiền sân chia 8 người: 200k / 8 = 25k/người
-    expect(finances.courtFeePerPerson).toBe(25000);
+    // Tiền sân chia cho 8 người chơi + 1 thành viên báo nghỉ muộn.
+    expect(finances.courtFeePerPerson).toBe(23000);
 
     // 3. Tiền cầu chia 8 người: 104k / 8 = 13k/người
     expect(finances.shuttleFeePerPerson).toBe(13000);
 
     // 4. Khách Tuấn (Guest 1, không uống nước):
-    // Sân (25k) + Cầu (13k) + Phụ thu (10k) = 48.000đ
+    // Sân (23k) + Cầu (13k) + Phụ thu (10k) = 46.000đ
     const guest1 = finances.participants.find((p) => p.id === 'p-guest-1');
-    expect(guest1?.totalCost).toBe(48000);
+    expect(guest1?.totalCost).toBe(46000);
 
     // 5. Khách Bình (Guest 2, có uống trà đá 5k):
-    // Sân (25k) + Cầu (13k) + Nước (5k) + Phụ thu (10k) = 53.000đ
+    // Sân (23k) + Cầu (13k) + Nước (5k) + Phụ thu (10k) = 51.000đ
     const guest2 = finances.participants.find((p) => p.id === 'p-guest-2');
-    expect(guest2?.totalCost).toBe(53000);
+    expect(guest2?.totalCost).toBe(51000);
 
     // 6. Tùng (Member, uống nước 5k, đã ứng tiền sân 200k):
     // Chi phí buổi này: Cầu (13k) + Nước (5k) = 18.000đ

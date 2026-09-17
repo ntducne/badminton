@@ -34,13 +34,13 @@ export function formatMoneyShort(amount: number | null | undefined): string {
 /**
  * Kiểm tra xem thời điểm hiện tại có trước deadline 6 tiếng hay không
  */
-export function checkIsBeforeDeadline(sessionDateStr: string, startTimeStr: string): boolean {
+export function checkIsBeforeDeadline(sessionDateStr: string, startTimeStr: string, deadlineHours = 6): boolean {
   try {
     const sessionStart = new Date(`${sessionDateStr}T${startTimeStr}:00`);
     const now = new Date();
     const diffMs = sessionStart.getTime() - now.getTime();
     const diffHours = diffMs / (1000 * 60 * 60);
-    return diffHours >= 6;
+    return diffHours >= deadlineHours;
   } catch {
     return false;
   }
@@ -70,7 +70,12 @@ export function calculateSessionFinances(session: Session) {
 
   // 2. Tiền sân:
   const totalCourtFee = session.courts.reduce((sum, c) => sum + (c.totalCost || 0), 0);
-  const courtFeePerPerson = activeCount > 0 ? ceilToThousand(totalCourtFee / activeCount) : 0;
+  const courtLiableParticipants = session.participants.filter(
+    (p) => p.attendanceStatus === 'ATTENDING' || (!p.isGuest && p.attendanceStatus === 'ABSENT_LATE')
+  );
+  const courtFeePerPerson = courtLiableParticipants.length > 0
+    ? ceilToThousand(totalCourtFee / courtLiableParticipants.length)
+    : 0;
 
   // 3. Tiền cầu:
   const totalShuttleFee = session.shuttleUsages.reduce((sum, u) => sum + (u.totalCost || 0), 0);
@@ -112,16 +117,17 @@ export function calculateSessionFinances(session: Session) {
   const updatedParticipants: SessionParticipant[] = session.participants.map((p) => {
     if (p.attendanceStatus !== 'ATTENDING') {
       // Người nghỉ buổi
+      const lateCourtShare = !p.isGuest && p.attendanceStatus === 'ABSENT_LATE' ? courtFeePerPerson : 0;
       return {
         ...p,
-        courtFeeShare: 0,
+        courtFeeShare: lateCourtShare,
         shuttleFeeShare: 0,
         drinkFeeShare: 0,
         otherFeeShare: 0,
         guestSurcharge: 0,
         totalCost: 0,
         debtAmount: 0,
-        netSettlement: 0 - p.totalAdvanced, // Nếu nghỉ mà đã ứng tiền thì nhóm vẫn nợ hoàn trả
+        netSettlement: 0 - p.totalAdvanced + (p.totalReimbursed || 0),
         paymentStatus: p.totalAdvanced > 0 ? 'PAID' : 'PAID',
       };
     }
@@ -144,7 +150,8 @@ export function calculateSessionFinances(session: Session) {
     }
 
     // Net phải nộp hoặc nhận: TotalCost - Tiền đã ứng - Tiền đã trả
-    const netSettlement = totalCost - (p.totalAdvanced || 0) - (p.totalPaid || 0);
+    const netSettlement = totalCost - (p.totalAdvanced || 0) - (p.totalPaid || 0)
+      + (p.totalReimbursed || 0);
     const debtAmount = netSettlement > 0 ? netSettlement : 0;
 
     let paymentStatus: SessionParticipant['paymentStatus'] = 'UNPAID';

@@ -59,11 +59,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     payerName: string;
     amount: number;
     description: string;
+    paymentId?: string;
   }>({
     isOpen: false,
     payerName: '',
     amount: 0,
     description: '',
+    paymentId: undefined,
   });
 
   const loadData = useCallback(async () => {
@@ -156,7 +158,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const handleSettleAction = async (action: 'SETTLE' | 'REOPEN') => {
     const confirmMsg =
       action === 'SETTLE'
-        ? 'Xác nhận Quyết toán buổi đánh? Tồn kho cầu sẽ được trừ và phụ thu khách được hạch toán vào quỹ.'
+        ? 'Xác nhận quyết toán? Tồn kho sẽ được trừ và các khoản phải thu/phải trả sẽ được tạo; quỹ chỉ thay đổi khi xác nhận thanh toán.'
         : 'Xác nhận Mở lại buổi đánh? Thay đổi sẽ được ghi vào nhật ký kiểm toán (Audit Log).';
 
     if (!confirm(confirmMsg)) return;
@@ -190,6 +192,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       payerName: participant.userName,
       amount,
       description: `${participant.userName} nop ${session?.sessionCode || 'buoi cau long'}`,
+      paymentId: participant.paymentId,
     });
   };
 
@@ -237,6 +240,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         payerName={qrModal.payerName}
         amount={qrModal.amount}
         description={qrModal.description}
+        paymentId={qrModal.paymentId}
       />
 
       <main className="max-w-4xl mx-auto px-4 py-5 space-y-5">

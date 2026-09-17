@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { User, Quarter, QuarterMember, Session } from '@/lib/types';
+import { paymentOutstanding } from '@/lib/finance-service';
+import { calculateQuarterSettlement } from '@/lib/quarter-service';
+import { User, Quarter, QuarterMember, Session, Payment } from '@/lib/types';
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,6 +19,7 @@ export async function GET(req: NextRequest) {
       ? null
       : await db.collection<Quarter>('quarters').findOne({ status: 'ACTIVE' });
     const quarterId = requestedQuarterId || activeQuarter?.id || 'q-2026-1';
+    const quarter = activeQuarter || await db.collection<Quarter>('quarters').findOne({ id: quarterId });
 
     // Lấy danh sách thành viên cố định trong quý
     const quarterMembers = await db
@@ -29,6 +32,9 @@ export async function GET(req: NextRequest) {
       .collection<Session>('sessions')
       .find({ quarterId })
       .toArray();
+    const payments = await db.collection<Payment>('payments')
+      .find({ quarterId, status: { $nin: ['CANCELLED', 'REFUNDED'] } })
+      .toArray();
 
     // Lấy thông tin tài khoản user
     const users = await db
@@ -37,6 +43,10 @@ export async function GET(req: NextRequest) {
       .toArray();
 
     const userMap = new Map(users.map((u) => [u.id, u]));
+    const quarterLines = quarter
+      ? calculateQuarterSettlement(quarter, quarterMembers, sessions)
+      : [];
+    const quarterLineMap = new Map(quarterLines.map((line) => [line.userId, line]));
 
     // Thống kê từng người:
     // - Số buổi đi
@@ -60,15 +70,16 @@ export async function GET(req: NextRequest) {
           if (participant.attendanceStatus === 'ABSENT_VALID') absentValidCount++;
           if (participant.attendanceStatus === 'ABSENT_LATE') absentLateCount++;
 
-          totalSessionDebt += participant.debtAmount || 0;
-          totalAdvanced += participant.totalAdvanced || 0;
         }
       }
+      for (const payment of payments) {
+        if (payment.payerId !== qm.userId) continue;
+        if (payment.direction === 'RECEIVABLE') totalSessionDebt += paymentOutstanding(payment);
+        else totalAdvanced += paymentOutstanding(payment);
+      }
 
-      // Hoàn tiền sân cho các buổi nghỉ hợp lệ (deadline 6h)
-      // Giả sử mỗi buổi tiền sân chia đều ~25k
-      const estimatedRefundPerValidSession = 25000;
-      const estimatedQuarterRefund = absentValidCount * estimatedRefundPerValidSession;
+      const quarterLine = quarterLineMap.get(qm.userId);
+      const estimatedQuarterRefund = Math.max(0, -(quarterLine?.finalBalance || 0));
 
       const isMe = currentUser.id === qm.userId;
       const isAdmin = currentUser.role === 'OWNER' || currentUser.role === 'ADMIN';
@@ -87,6 +98,8 @@ export async function GET(req: NextRequest) {
         fixedCourtFee: qm.fixedCourtFee,
         paidCourtFee: qm.paidAmount,
         estimatedQuarterRefund,
+        actualQuarterObligation: quarterLine?.actualCourtObligation || 0,
+        quarterBalance: quarterLine?.finalBalance || 0,
         // Bảo mật: Thành viên chỉ nhìn thấy nợ của chính mình; Admin nhìn thấy tất cả
         totalSessionDebt: isMe || isAdmin ? totalSessionDebt : null,
         totalAdvanced: isMe || isAdmin ? totalAdvanced : null,
@@ -100,7 +113,9 @@ export async function GET(req: NextRequest) {
       totalCount: quarterMembers.length,
       currentUserId: currentUser.id,
       currentUserRole: currentUser.role,
-      quarterName: activeQuarter?.name,
+      quarterName: quarter?.name,
+      quarterId,
+      quarterStatus: quarter?.status,
     });
   } catch (error: unknown) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tải thống kê thành viên' }, { status: 500 });

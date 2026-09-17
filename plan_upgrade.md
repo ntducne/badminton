@@ -25,15 +25,15 @@ Nâng cấp ứng dụng từ công cụ theo dõi nội bộ thành hệ thốn
 |---|---|---|
 | Giai đoạn 1 — Bảo toàn dữ liệu và quyết toán an toàn | ✅ Hoàn thành | 2026-09-17 |
 | Giai đoạn 2 — Validation và bảo mật API | ✅ Hoàn thành | 2026-09-17 |
-| Giai đoạn 3 — Sổ cái quỹ thống nhất | Chưa thực hiện | — |
-| Giai đoạn 4 — Thanh toán và công nợ | Chưa thực hiện | — |
-| Giai đoạn 5 — Sổ biến động kho cầu | Chưa thực hiện | — |
-| Giai đoạn 6 — Quyết toán thành viên theo quý | Chưa thực hiện | — |
-| Giai đoạn 7 — Đồng thời, audit và vận hành | Chưa thực hiện | — |
+| Giai đoạn 3 — Sổ cái quỹ thống nhất | ✅ Hoàn thành | 2026-09-17 |
+| Giai đoạn 4 — Thanh toán và công nợ | ✅ Hoàn thành | 2026-09-17 |
+| Giai đoạn 5 — Sổ biến động kho cầu | ✅ Hoàn thành | 2026-09-17 |
+| Giai đoạn 6 — Quyết toán thành viên theo quý | ✅ Hoàn thành | 2026-09-17 |
+| Giai đoạn 7 — Đồng thời, audit và vận hành | ✅ Hoàn thành | 2026-09-17 |
 
 ## 3. Giai đoạn 1 — Bảo toàn dữ liệu và quyết toán an toàn ✅
 
-> Hoàn thành ngày 2026-09-17. Đã triển khai state machine, optimistic version, MongoDB transaction, settlement snapshot, idempotency, kiểm tra tồn kho, bút toán đảo kho/quỹ, audit và khóa các mutation sai trạng thái. Migration `migrate:stage1` đã chạy thành công trên `badminton_db`; MongoDB hiện chạy replica set `rs0` và hỗ trợ transaction.
+> Hoàn thành ngày 2026-09-17. Đã triển khai state machine, optimistic version, MongoDB transaction, settlement snapshot, idempotency, kiểm tra tồn kho, giao dịch đảo kho, audit và khóa các mutation sai trạng thái. Từ Giai đoạn 3–4, reopen hủy công nợ cũ nhưng giữ dòng tiền thực tế; khoản hoàn tiền được ghi nhận riêng. Migration `migrate:stage1` đã chạy thành công trên `badminton_db`; MongoDB hiện chạy replica set `rs0` và hỗ trợ transaction.
 
 ### 3.1. Chuẩn hóa trạng thái buổi chơi
 
@@ -85,7 +85,7 @@ Khi mở lại một session đã quyết toán:
 
 - Bắt buộc nhập lý do.
 - Hoàn lại lượng cầu đã xuất bằng movement đảo.
-- Tạo bút toán đảo cho các giao dịch quỹ.
+- Hủy nghĩa vụ chưa còn hiệu lực nhưng không xóa/đảo giả dòng tiền đã thực thu hoặc thực chi.
 - Giữ nguyên settlement và audit cũ.
 - Tạo settlement version mới khi quyết toán lại.
 
@@ -112,7 +112,7 @@ Khi mở lại một session đã quyết toán:
 - [x] Settlement service chạy trong MongoDB transaction.
 - [x] Settlement ID và version chống xử lý trùng.
 - [x] Kiểm tra tồn kho có điều kiện, không cho tồn âm.
-- [x] Mở lại bắt buộc lý do và tạo movement/bút toán đảo.
+- [x] Mở lại bắt buộc lý do, tạo movement đảo và hủy payment của settlement cũ.
 - [x] Điểm danh, guest và chỉnh sửa bị khóa theo trạng thái.
 - [x] Không cho xóa session đã có giao dịch tài chính.
 - [x] Optimistic concurrency bằng trường `version`.
@@ -197,7 +197,9 @@ Tất cả API nội bộ phải yêu cầu đăng nhập, kể cả API đọc 
 - [x] Production yêu cầu `JWT_SECRET` tối thiểu 32 ký tự.
 - [x] Unit test và integration test cho validation, quyền truy cập, privacy và VietQR.
 
-## 5. Giai đoạn 3 — Sổ cái quỹ thống nhất
+## 5. Giai đoạn 3 — Sổ cái quỹ thống nhất ✅
+
+> Hoàn thành ngày 2026-09-17. Số dư quỹ hiện chỉ được tái tạo từ bút toán `POSTED`; mọi dòng tiền có chiều thu/chi, nguồn nghiệp vụ và lịch sử đảo. Báo cáo quỹ không còn cộng song song số liệu từ session.
 
 ### 5.1. Thiết kế treasury ledger
 
@@ -253,7 +255,17 @@ Số dư đầu kỳ + Tổng thu - Tổng chi = Số dư hiện tại
 
 Toàn bộ số dư phải tái tạo được từ lịch sử ledger.
 
-## 6. Giai đoạn 4 — Thanh toán và công nợ
+### Kết quả triển khai
+
+- [x] Chuẩn hóa `TreasuryEntry` với loại, chiều tiền, trạng thái và liên kết payment/settlement.
+- [x] Số dư đầu kỳ + tổng thu `POSTED` - tổng chi `POSTED` là nguồn sự thật duy nhất.
+- [x] Hỗ trợ bút toán điều chỉnh và bút toán đảo; không sửa/xóa lịch sử đã ghi sổ.
+- [x] Báo cáo tổng thu, tổng chi, phải thu, phải trả và dòng tiền theo loại.
+- [x] Migration idempotent có dry-run và snapshot dữ liệu trước khi chuyển đổi.
+
+## 6. Giai đoạn 4 — Thanh toán và công nợ ✅
+
+> Hoàn thành ngày 2026-09-17. Quyết toán tạo payment phải thu/phải trả trong cùng transaction; VietQR đọc số còn nợ từ server; chỉ xác nhận thanh toán mới ghi dòng tiền thực tế.
 
 ### 6.1. Thiết kế payment
 
@@ -299,7 +311,19 @@ Phân biệt rõ:
 - Hỗ trợ thanh toán một phần, nhiều lần và hoàn tiền.
 - Tổng công nợ khớp với payment và ledger.
 
-## 7. Giai đoạn 5 — Sổ biến động kho cầu
+### Kết quả triển khai
+
+- [x] Quyết toán tự động tạo khoản phải thu hoặc phải trả cho từng người.
+- [x] Hỗ trợ thu/trả một phần, nhiều lần, ghi nhận trả thừa và hoàn tiền.
+- [x] Mỗi lần xác nhận/hoàn tiền tạo payment event, ledger entry và audit trong một transaction.
+- [x] VietQR lấy số còn phải thu theo `paymentId`; client không tự quyết định tài khoản hoặc số nợ.
+- [x] Member chỉ xem payment của mình; Admin/Owner xác nhận và hoàn tiền trên màn hình quỹ.
+- [x] Mở lại settlement hủy nghĩa vụ cũ nhưng giữ nguyên dòng tiền thực tế để đối soát.
+- [x] Unit test và integration test cho partial payment, nhiều lần, refund, quyền hạn và ledger balance.
+
+## 7. Giai đoạn 5 — Sổ biến động kho cầu ✅
+
+> Hoàn thành ngày 2026-09-17. Nhập, sử dụng, hỏng/mất, kiểm kê và đảo kho đều có movement bất biến; số tồn document được đối chiếu với tổng movement và mọi cập nhật dùng optimistic concurrency.
 
 ### 7.1. Thiết kế inventory movement
 
@@ -336,7 +360,18 @@ Tồn kho = Tổng nhập - Tổng sử dụng - Hỏng ± Điều chỉnh
 
 Số lượng trên từng batch phải đối chiếu được với toàn bộ movement.
 
-## 8. Giai đoạn 6 — Quyết toán thành viên theo quý
+### Kết quả triển khai
+
+- [x] `PURCHASE`, `SESSION_USAGE`, `DAMAGED`, `ADJUSTMENT`, `REVERSAL` movement.
+- [x] Settlement hỗ trợ chọn lô cụ thể hoặc cấp phát FIFO theo ngày mua.
+- [x] Nhập cầu từ quỹ tạo ledger chi; thành viên mua ứng tạo payment phải trả.
+- [x] UI hỏng/mất, kiểm kê, lịch sử movement và cảnh báo lệch sổ.
+- [x] Version trên batch, kiểm tra tồn có điều kiện và không cho tồn âm.
+- [x] Migration backfill purchase/adjustment để tái tạo đúng tồn kho hiện tại.
+
+## 8. Giai đoạn 6 — Quyết toán thành viên theo quý ✅
+
+> Hoàn thành ngày 2026-09-17. Phí quý là khoản tạm thu; nghĩa vụ cuối kỳ được tính từ tiền sân thực tế của từng session, trạng thái điểm danh và thời gian thành viên tham gia quý.
 
 ### 8.1. Thay hoàn tiền ước tính bằng số thực tế
 
@@ -372,7 +407,18 @@ Số cuối kỳ = Tổng nghĩa vụ thực tế - Đã đóng - Đã thanh to�
 - Có thể giải thích chi tiết số tiền cuối kỳ của từng thành viên.
 - Tổng nghĩa vụ thành viên khớp với chi phí thực tế và ledger.
 
-## 9. Giai đoạn 7 — Đồng thời, audit và vận hành
+### Kết quả triển khai
+
+- [x] Nghỉ hợp lệ không chịu tiền sân; nghỉ muộn chịu phần sân thực tế.
+- [x] Thành viên chỉ chịu các session nằm trong khoảng `joinedDate`–`leftDate`.
+- [x] Cấu hình deadline, làm tròn, hủy sân, vào/rời quý và chuyển số dư.
+- [x] Quyết toán quý tạo payment phải thu/phải trả, hỗ trợ reopen và chỉ đóng khi hết nợ.
+- [x] Màn hình thành viên bỏ hoàn tiền ước tính cố định, hiển thị nghĩa vụ thực tế.
+- [x] Export báo cáo CSV dùng với Excel và PDF.
+
+## 9. Giai đoạn 7 — Đồng thời, audit và vận hành ✅
+
+> Hoàn thành ngày 2026-09-17. Các document tài chính/kho/quý có version, request được gắn correlation ID, audit lưu document trước/sau và Owner có màn hình tra cứu. Đã bổ sung backup và integrity checker phục vụ cron.
 
 ### 9.1. Optimistic concurrency
 
@@ -396,6 +442,16 @@ Số cuối kỳ = Tổng nghĩa vụ thực tế - Đã đóng - Đã thanh to�
 - Backup MongoDB định kỳ.
 - Script kiểm tra tính toàn vẹn quỹ và kho.
 - Export Excel/PDF cho quyết toán quý.
+
+### Kết quả triển khai
+
+- [x] Optimistic concurrency cho session, payment, batch và quarter; xung đột trả `409`.
+- [x] ID nghiệp vụ mới dùng `crypto.randomUUID()`; loại bỏ ID dựa trên thời gian.
+- [x] Request ID tại proxy, structured HTTP log và request ID trong audit mới/migration cũ.
+- [x] Màn hình `/audit` chỉ dành cho Owner.
+- [x] Cảnh báo tồn thấp và công nợ quá hạn.
+- [x] `backup:db` tạo snapshot JSON quyền hạn chế; `check:integrity` đối chiếu ledger, kho, payment và settlement.
+- [x] Migration Giai đoạn 5–7 có dry-run, snapshot và rollback.
 
 ## 10. Chiến lược migration
 

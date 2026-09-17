@@ -133,6 +133,7 @@ export const statusTransitionSchema = z.strictObject({
 });
 
 export const shuttleBatchSchema = z.strictObject({
+  quarterId: id.optional(),
   brandName: shortText,
   tubeQuantity: z.coerce.number().int().min(1).max(1000),
   ballsPerTube: z.coerce.number().int().min(1).max(100),
@@ -143,6 +144,40 @@ export const shuttleBatchSchema = z.strictObject({
   notes: optionalNote,
 });
 
+export const inventoryActionSchema = z.discriminatedUnion('action', [
+  z.strictObject({
+    action: z.literal('DAMAGED'),
+    batchId: id,
+    quantity: z.coerce.number().int().positive().max(10_000),
+    reason: z.string().trim().min(1).max(500),
+    version: z.coerce.number().int().min(0),
+  }),
+  z.strictObject({
+    action: z.literal('ADJUSTMENT'),
+    batchId: id,
+    newRemaining: z.coerce.number().int().min(0).max(1_000_000),
+    reason: z.string().trim().min(1).max(500),
+    version: z.coerce.number().int().min(0),
+  }),
+]);
+
+export const quarterConfigSchema = z.strictObject({
+  version: z.coerce.number().int().min(0),
+  absenceDeadlineHours: z.coerce.number().int().min(0).max(168),
+  defaultGuestSurcharge: money,
+  defaultTargetPlayers: z.coerce.number().int().min(1).max(100),
+  roundingUnit: z.coerce.number().int().min(1).max(100_000),
+  cancellationFeePolicy: z.enum(['NONE', 'ACTUAL_COST']),
+  memberJoinPolicy: z.literal('PRORATED_BY_SESSION'),
+  balanceCarryPolicy: z.enum(['SETTLE_NOW', 'CARRY_FORWARD']),
+});
+
+export const quarterSettlementSchema = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('SETTLE'), notes: optionalNote }),
+  z.strictObject({ action: z.literal('REOPEN'), reason: z.string().trim().min(1).max(1000) }),
+  z.strictObject({ action: z.literal('CLOSE') }),
+]);
+
 export const drinkSchema = z.strictObject({
   name: shortText,
   unitPrice: positiveMoney,
@@ -150,9 +185,43 @@ export const drinkSchema = z.strictObject({
 });
 
 export const vietQrQuerySchema = z.strictObject({
-  amount: z.coerce.number().int().positive().max(100_000_000),
+  paymentId: id.optional(),
+  amount: z.coerce.number().int().positive().max(100_000_000).optional(),
   description: z.string().trim().min(1).max(80).default('Tien cau long'),
+}).refine((value) => Boolean(value.paymentId || value.amount), {
+  message: 'Cần paymentId hoặc số tiền',
+  path: ['paymentId'],
 });
+
+export const paymentActionSchema = z.discriminatedUnion('action', [
+  z.strictObject({
+    action: z.literal('CONFIRM'),
+    amount: positiveMoney,
+    method: z.enum(['CASH', 'BANK_TRANSFER']),
+    reference: z.string().trim().max(160).optional(),
+  }),
+  z.strictObject({
+    action: z.literal('REFUND'),
+    amount: positiveMoney,
+    method: z.enum(['CASH', 'BANK_TRANSFER']),
+    reference: z.string().trim().max(160).optional(),
+  }),
+]);
+
+export const treasuryActionSchema = z.discriminatedUnion('action', [
+  z.strictObject({
+    action: z.literal('ADJUSTMENT'),
+    quarterId: id,
+    amount: positiveMoney,
+    direction: z.enum(['IN', 'OUT']),
+    description: shortText,
+  }),
+  z.strictObject({
+    action: z.literal('REVERSE'),
+    entryId: id,
+    description: shortText,
+  }),
+]);
 
 export class RequestValidationError extends Error {
   constructor(public readonly issues: z.core.$ZodIssue[]) {

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Home, CalendarDays, Package, Users, Wallet, LogOut, ChevronRight, LogIn } from 'lucide-react';
+import { Home, CalendarDays, Package, Users, Wallet, LogOut, ChevronRight, LogIn, ScrollText } from 'lucide-react';
 import { AuthSessionUser } from '@/lib/auth';
 
 interface NavbarProps { user: AuthSessionUser | null }
@@ -15,6 +15,7 @@ export function Navbar({ user }: NavbarProps) {
     { label: 'Tổng quan', href: '/', icon: Home }, { label: 'Buổi đánh', href: '/sessions', icon: CalendarDays },
     { label: 'Kho cầu', href: '/shuttlecock', icon: Package }, { label: 'Thành viên', href: '/members', icon: Users },
     { label: 'Quỹ chung', href: '/treasury', icon: Wallet },
+    ...(user?.role === 'OWNER' ? [{ label: 'Audit', href: '/audit', icon: ScrollText }] : []),
   ];
   const current = navItems.find((item) => pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href)));
   const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); router.refresh(); };

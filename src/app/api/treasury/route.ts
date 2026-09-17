@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { Quarter, Session, QuarterMember } from '@/lib/types';
+import { createAdjustment, FinanceError, paymentOutstanding, reverseTreasuryEntry } from '@/lib/finance-service';
+import { parseJsonBody, RequestValidationError, treasuryActionSchema, validationErrorResponse } from '@/lib/api-validation';
+import type { Payment, Quarter, TreasuryEntry, TreasuryEntryType } from '@/lib/types';
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,42 +21,74 @@ export async function GET(req: NextRequest) {
     const quarterId = requestedQuarterId || activeQuarter?.id || 'q-2026-1';
 
     const quarter = activeQuarter || await db.collection<Quarter>('quarters').findOne({ id: quarterId });
-    const members = await db.collection<QuarterMember>('quarter_members').find({ quarterId }).toArray();
-    const sessions = await db.collection<Session>('sessions').find({ quarterId }).toArray();
-    const treasuryLogs = await db.collection('treasury').find({ quarterId }).sort({ createdAt: -1 }).toArray();
+    const [entries, payments] = await Promise.all([
+      db.collection<TreasuryEntry>('treasury')
+        .find({ quarterId, status: 'POSTED' }, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .toArray(),
+      db.collection<Payment>('payments')
+        .find({ quarterId, status: { $nin: ['CANCELLED', 'REFUNDED'] } }, { projection: { _id: 0 } })
+        .toArray(),
+    ]);
 
-    // 1. Tổng tiền thành viên đóng quý
-    const totalMemberPaid = members.reduce((sum, m) => sum + (m.paidAmount || 0), 0);
-
-    // 2. Tổng thu từ guest (bao gồm cả phụ thu)
-    const totalGuestRevenue = sessions.reduce((sum, s) => sum + (s.totalGuestRevenue || 0), 0);
-
-    // 3. Tổng chi phí các buổi
-    const totalSessionsExpense = sessions.reduce((sum, s) => sum + (s.totalExpense || 0), 0);
-
-    // 4. Tổng tiền các thành viên đã ứng cho nhóm
-    let totalAdvancedByMembers = 0;
-    for (const s of sessions) {
-      for (const adv of s.advances || []) {
-        totalAdvancedByMembers += adv.amount || 0;
-      }
+    const incomeByType: Partial<Record<TreasuryEntryType, number>> = {};
+    const expenseByType: Partial<Record<TreasuryEntryType, number>> = {};
+    let totalIncome = 0;
+    let totalExpense = 0;
+    for (const entry of entries) {
+      const target = entry.direction === 'IN' ? incomeByType : expenseByType;
+      target[entry.type] = (target[entry.type] || 0) + entry.amount;
+      if (entry.direction === 'IN') totalIncome += entry.amount;
+      else totalExpense += entry.amount;
     }
 
-    // 5. Số dư ước tính
+    const totalReceivable = payments
+      .filter((payment) => payment.direction === 'RECEIVABLE')
+      .reduce((sum, payment) => sum + paymentOutstanding(payment), 0);
+    const totalPayable = payments
+      .filter((payment) => payment.direction === 'PAYABLE')
+      .reduce((sum, payment) => sum + paymentOutstanding(payment), 0);
     const startingBalance = quarter?.startingBalance || 0;
-    const currentFundBalance = startingBalance + totalMemberPaid + totalGuestRevenue - totalSessionsExpense;
 
     return NextResponse.json({
-      quarterName: quarter?.name || 'Quý 1/2026',
+      quarterName: quarter?.name || 'Quý hiện tại',
       startingBalance,
-      totalMemberPaid,
-      totalGuestRevenue,
-      totalSessionsExpense,
-      totalAdvancedByMembers,
-      currentFundBalance,
-      recentLogs: treasuryLogs,
+      totalMemberPaid: incomeByType.QUARTER_FEE || 0,
+      totalGuestRevenue: incomeByType.GUEST_PAYMENT || 0,
+      totalSessionsExpense: totalExpense,
+      totalAdvancedByMembers: totalPayable,
+      currentFundBalance: startingBalance + totalIncome - totalExpense,
+      totalIncome,
+      totalExpense,
+      totalReceivable,
+      totalPayable,
+      incomeByType,
+      expenseByType,
+      recentLogs: entries.slice(0, 100),
     });
   } catch (error: unknown) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Lỗi tải thông tin quỹ chung' }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
+    if (user.role !== 'OWNER' && user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Chỉ Admin/Owner được điều chỉnh sổ quỹ' }, { status: 403 });
+    }
+    const body = await parseJsonBody(req, treasuryActionSchema);
+    const requestId = req.headers.get('x-request-id') || crypto.randomUUID();
+    const entry = body.action === 'ADJUSTMENT'
+      ? await createAdjustment(body.quarterId, body.amount, body.direction, body.description, user, requestId)
+      : await reverseTreasuryEntry(body.entryId, body.description, user, requestId);
+    return NextResponse.json({ success: true, entry });
+  } catch (error: unknown) {
+    if (error instanceof RequestValidationError) return validationErrorResponse(error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Lỗi cập nhật sổ quỹ' },
+      { status: error instanceof FinanceError ? error.status : 500 }
+    );
   }
 }

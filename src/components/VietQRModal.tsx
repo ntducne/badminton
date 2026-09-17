@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Modal,
@@ -10,7 +10,7 @@ import {
   ModalFooter,
   Button,
 } from '@heroui/react';
-import { Copy, Check, QrCode } from 'lucide-react';
+import { Copy, Check, QrCode, LoaderCircle } from 'lucide-react';
 import { formatMoney } from '@/lib/calculations';
 
 interface VietQRModalProps {
@@ -19,18 +19,40 @@ interface VietQRModalProps {
   payerName: string;
   amount: number;
   description: string;
+  paymentId?: string;
 }
 
-export function VietQRModal({ isOpen, onClose, payerName, amount, description }: VietQRModalProps) {
+type QrData = { vietQrUrl: string; accountNo: string; accountName: string; amount: number; description: string };
+
+export function VietQRModal({ isOpen, onClose, payerName, amount, description, paymentId }: VietQRModalProps) {
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [copiedDesc, setCopiedDesc] = useState(false);
+  const [qrData, setQrData] = useState<QrData | null>(null);
+  const [error, setError] = useState('');
 
-  const bankId = '970422'; // MBBank
-  const accountNo = '0988888888';
-  const accountName = 'NGUYEN DUC TUNG';
-
-  const cleanDescription = description.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-  const vietQrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.jpg?amount=${amount}&addInfo=${encodeURIComponent(cleanDescription)}&accountName=${encodeURIComponent(accountName)}`;
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    const params = new URLSearchParams({ description });
+    if (paymentId) params.set('paymentId', paymentId);
+    else params.set('amount', String(amount));
+    fetch(`/api/vietqr?${params}`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Không thể tạo VietQR');
+        if (active) {
+          setError('');
+          setQrData(data);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setQrData(null);
+          setError(reason instanceof Error ? reason.message : 'Không thể tạo VietQR');
+        }
+      });
+    return () => { active = false; };
+  }, [amount, description, isOpen, paymentId]);
 
   const copyToClipboard = (text: string, type: 'acc' | 'desc') => {
     navigator.clipboard.writeText(text);
@@ -78,12 +100,16 @@ export function VietQRModal({ isOpen, onClose, payerName, amount, description }:
                 transition={{ duration: 0.3 }}
                 className="bg-slate-50 p-2 rounded-2xl border border-slate-200/80 flex flex-col items-center shadow-inner"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={vietQrUrl}
-                  alt="VietQR Napas 247"
-                  className="w-full max-h-56 object-contain rounded-xl"
-                />
+                {!qrData && !error && <LoaderCircle className="animate-spin my-20 text-emerald-700" size={28} />}
+                {error && <p className="my-16 text-sm text-red-600 font-semibold text-center">{error}</p>}
+                {qrData && <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={qrData.vietQrUrl}
+                    alt="VietQR Napas 247"
+                    className="w-full max-h-56 object-contain rounded-xl"
+                  />
+                </>}
               </motion.div>
 
               {/* Info Blocks */}
@@ -95,7 +121,7 @@ export function VietQRModal({ isOpen, onClose, payerName, amount, description }:
                   </div>
                   <div className="text-right">
                     <span className="text-emerald-700 block text-[10px] font-semibold">Số tiền cần chuyển</span>
-                    <span className="font-extrabold text-emerald-700 text-base">{formatMoney(amount)}</span>
+                    <span className="font-extrabold text-emerald-700 text-base">{formatMoney(qrData?.amount || amount)}</span>
                   </div>
                 </div>
 
@@ -103,14 +129,15 @@ export function VietQRModal({ isOpen, onClose, payerName, amount, description }:
                   <div className="space-y-0.5">
                     <span className="text-slate-400 block text-[10px]">Tài khoản MBBank</span>
                     <span className="font-mono font-bold text-slate-800 text-xs">
-                      {accountNo} ({accountName})
+                      {qrData?.accountNo || 'Đang tải...'} ({qrData?.accountName || 'VietQR'})
                     </span>
                   </div>
                   <Button
                     size="sm"
                     variant="flat"
                     color={copiedAcc ? 'success' : 'default'}
-                    onPress={() => copyToClipboard(accountNo, 'acc')}
+                    onPress={() => qrData && copyToClipboard(qrData.accountNo, 'acc')}
+                    isDisabled={!qrData}
                     className="h-7 text-[11px] font-semibold rounded-lg"
                     startContent={copiedAcc ? <Check size={13} /> : <Copy size={13} />}
                   >
@@ -121,13 +148,14 @@ export function VietQRModal({ isOpen, onClose, payerName, amount, description }:
                 <div className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-200/60">
                   <div className="space-y-0.5">
                     <span className="text-slate-400 block text-[10px]">Nội dung chuyển khoản</span>
-                    <span className="font-medium text-slate-800 text-xs">{cleanDescription}</span>
+                    <span className="font-medium text-slate-800 text-xs">{qrData?.description || description}</span>
                   </div>
                   <Button
                     size="sm"
                     variant="flat"
                     color={copiedDesc ? 'success' : 'default'}
-                    onPress={() => copyToClipboard(cleanDescription, 'desc')}
+                    onPress={() => qrData && copyToClipboard(qrData.description, 'desc')}
+                    isDisabled={!qrData}
                     className="h-7 text-[11px] font-semibold rounded-lg"
                     startContent={copiedDesc ? <Check size={13} /> : <Copy size={13} />}
                   >
